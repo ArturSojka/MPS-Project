@@ -1,0 +1,11 @@
+[project]
+name = "mps-project"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "manim>=0.20.1",
+    "manim-physics>=0.2.4",
+    "matplotlib>=3.10.9",
+]
