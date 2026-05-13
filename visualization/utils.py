@@ -67,13 +67,19 @@ class CoordsConverter:
 
     @overload
     def manim2real(
+        self, x_or_points: np.ndarray, y: None = None
+    ) -> Tuple[float, float]:
+        ...
+
+    @overload
+    def manim2real(
         self, x_or_points: List[np.ndarray], y: None = None
     ) -> List[Tuple[float, float]]:
         ...
 
     def manim2real(
         self,
-        x_or_points: float | List[np.ndarray],
+        x_or_points: float | np.ndarray | List[np.ndarray],
         y: float | None = None,
     ) -> Tuple[float, float] | List[Tuple[float, float]]:
         rx = self.rmx / self.manim_width
@@ -82,7 +88,12 @@ class CoordsConverter:
         if isinstance(x_or_points, (float, int)):
             return (
                 (x_or_points + self.manim_width / 2) * rx,
-                (y          + self.manim_height / 2) * ry,
+                (y           + self.manim_height / 2) * ry,
+            )
+        if isinstance(x_or_points, np.ndarray):
+            return (
+                (x_or_points[0] + self.manim_width / 2) * rx,
+                (x_or_points[1] + self.manim_height / 2) * ry,
             )
 
         return [
@@ -131,16 +142,22 @@ class CoordsConverter:
 
     @overload
     def manim2array(
+        self, x_or_points: np.ndarray, y: None = None
+    ) -> Tuple[float, float]:
+        ...
+
+    @overload
+    def manim2array(
         self, x_or_points: List[np.ndarray], y: None = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         ...
 
     def manim2array(
         self,
-        x_or_points: float | List[np.ndarray],
+        x_or_points: float | np.ndarray | List[np.ndarray],
         y: float | None = None,
     ) -> Tuple[int, int] | Tuple[np.ndarray, np.ndarray]:
-        if isinstance(x_or_points, (float, int)):
+        if isinstance(x_or_points, (float, int, np.ndarray)):
             return self.real2array(*self.manim2real(x_or_points, y))
 
         r = np.array(self.manim2real(x_or_points, y))
