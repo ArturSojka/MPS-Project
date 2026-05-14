@@ -216,12 +216,14 @@ class IonGenerator:
         """
         Generate the initial real coordinates and velocities of n ions.
         """
-        xs = np.random.random((n,)) * (self.x2 - self.x1) + self.x1
-        ys = np.random.random((n,)) * (self.y2 - self.y1) + self.y1
+        rng = np.random.default_rng()
+        
+        xs = rng.random((n,)) * (self.x2 - self.x1) + self.x1
+        ys = rng.random((n,)) * (self.y2 - self.y1) + self.y1
 
         if self.randomize_v:
-            vxs = (1 + (np.random.random((n,)) - 0.5) * 0.05) * self.init_vx
-            vys = (1 + (np.random.random((n,)) - 0.5) * 0.05) * self.init_vy
+            vxs = (1 + (rng.random((n,)) - 0.5) * 0.05) * self.init_vx
+            vys = (1 + (rng.random((n,)) - 0.5) * 0.05) * self.init_vy
         else:
             vxs = np.full((n,), self.init_vx)
             vys = np.full((n,), self.init_vy)
