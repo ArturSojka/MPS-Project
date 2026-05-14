@@ -108,8 +108,8 @@ class ElectricField:
         If `(x,y)` is outside simulation this returns
         the value for the closest simulated point.
         """
-        i = max(0.0, min(x / self.dx, self.nx-1))
-        j = max(0.0, min(y / self.dy, self.ny-1))
+        i = max(0.0, min(x / self.dx, self.nx-2))
+        j = max(0.0, min(y / self.dy, self.ny-2))
 
         i0, j0 = int(i), int(j)
         i1, j1 = i0 + 1, j0 + 1

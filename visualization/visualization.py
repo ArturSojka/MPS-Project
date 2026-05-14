@@ -16,6 +16,7 @@ from manim import (
     VGroup,
     VMobject,
     color_gradient,
+    StreamLines
 )
 from matplotlib import cm, colors
 
@@ -117,6 +118,27 @@ class MElectricField:
         quiver.set_opacity(self.opacity)
         quiver.set_color(self.color)
         return quiver
+    
+    def as_streamlines(self) -> StreamLines:
+        """
+        Usage
+        -----
+        ```
+        sl = m_field.as_streamlines()
+        self.add(sl)
+        sl.start_animation(warm_up=False, flow_speed=3)
+        self.wait(sl.virtual_time / sl.flow_speed)
+        ```
+        """
+        
+        def func(p):
+            ex, ey = self.field.get_field_at(
+                *self.converter.manim2real(p[0],p[1])
+            )
+
+            return np.array([ex,ey,0])
+        
+        return StreamLines(func)
         
 
 class MIonGenerator:
