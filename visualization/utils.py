@@ -1,9 +1,10 @@
-import numpy as np
 from typing import List, Tuple, overload
+
+import numpy as np
 
 
 class CoordsConverter:
-    """Convert between three 2D coordinate systems:
+    """Convert between three 2D coordinate systems.
 
     - array  : integer indices in the simulation array
     - real   : physical simulation coordinates
@@ -177,4 +178,3 @@ class CoordsConverter:
         self, x: int | np.ndarray, y: int | np.ndarray
     ) -> np.ndarray | List[np.ndarray]:
         return self.real2manim(*self.array2real(x, y))
-        
