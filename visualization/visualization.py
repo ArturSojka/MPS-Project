@@ -16,7 +16,10 @@ from manim import (
     VGroup,
     VMobject,
     color_gradient,
-    StreamLines
+    StreamLines,
+    ShowPassingFlash,
+    ShowPassingFlashWithThinningStrokeWidth,
+    linear
 )
 from matplotlib import cm, colors
 
@@ -119,7 +122,7 @@ class MElectricField:
         quiver.set_color(self.color)
         return quiver
     
-    def as_streamlines(self) -> StreamLines:
+    def as_streamlines(self, width: float = 1.0) -> StreamLines:
         """
         Usage
         -----
@@ -130,7 +133,6 @@ class MElectricField:
         self.wait(sl.virtual_time / sl.flow_speed)
         ```
         """
-        
         def func(p):
             ex, ey = self.field.get_field_at(
                 *self.converter.manim2real(p[0],p[1])
@@ -138,7 +140,7 @@ class MElectricField:
 
             return np.array([ex,ey,0])
         
-        return StreamLines(func)
+        return StreamLines(func,stroke_width=width)
         
 
 class MIonGenerator:
@@ -189,7 +191,8 @@ class MIonSimulation:
 
     def get_ions(
         self,
-        gradient: Iterable[ParsableManimColor]
+        gradient: Iterable[ParsableManimColor],
+        radius: float = 0.04
     ) -> List[Tuple[VMobject,Dot]]:
         ions = []
         for i, c in enumerate(color_gradient(gradient, self.sim.n)):
@@ -200,7 +203,7 @@ class MIonSimulation:
             )
             path.set_points_smoothly(traj)
 
-            dot = Dot(traj[0], 0.04, color=c)
+            dot = Dot(traj[0], radius, color=c)
 
             ions.append((path,dot))
         return ions
@@ -214,14 +217,41 @@ class MIonSimulation:
         """
         ions = self.get_ions(gradient)
         return [path for path, _ in ions]
+    
+    def as_animated_paths(
+        self,
+        gradient: Iterable[ParsableManimColor],
+        run_time: float = 10,
+        time_width: float = 0.1
+    ) -> List[Animation]:
+        """
+        Animate the paths of the ions.
+        
+        This is not very accurate to the actual positions of the ions in time.
+        Prefer `as_at_once` for accuracy.
+        """
+        ions = self.get_ions(gradient)
+        return [
+            ShowPassingFlashWithThinningStrokeWidth(
+                path,
+                run_time=run_time,
+                time_width=time_width,
+                rate_func=linear
+            ) 
+            for path, _ in ions
+        ]
 
     def as_at_once(
         self,
-        gradient: Iterable[ParsableManimColor]
+        gradient: Iterable[ParsableManimColor],
+        radius: float = 0.04
     ) -> Tuple[List[VMobject],List[Animation]]:
         """
-        Animate releasing all ions at once.
-
+        Animate the accurate movement of ions being released at once.
+        
+        This is very slow to render.
+        Prefer `as_animated_paths` for prototyping.
+        
         Usage
         -----
         ```
@@ -231,7 +261,7 @@ class MIonSimulation:
         self.wait()
         ```
         """
-        ions = self.get_ions(gradient)
+        ions = self.get_ions(gradient,radius)
 
         animations = [
             MoveAlongPath(dot,path)
