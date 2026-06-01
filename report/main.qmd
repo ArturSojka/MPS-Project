@@ -476,7 +476,7 @@ The on-axis potential profile, @fig-potential, makes the accelerating structure
 explicit. The potential is flat at the screen value in the discharge region,
 drops through the inter-grid gap, reaches a minimum near the accel grid and then
 recovers towards zero downstream. The simulated on-axis minimum is
-\SI{`{python} f"{nstar['v_min_axial']:.1f}"`}{\volt}, comfortably within the
+`{python} f"{nstar['v_min_axial']:.1f}"` V, comfortably within the
 \SIrange{-50}{-150}{\volt} range reported by Wang et al. and, correctly, well
 above the \SI{-180}{\volt} accel-grid voltage itself, because the field spreads
 laterally through the aperture rather than reaching the full electrode potential
@@ -500,22 +500,22 @@ one-dimensional estimate $\Delta V / g$, the expected sub-unity ratio for a
 perforated electrode in which the field spreads through the holes rather than
 dropping fully across a solid gap. The energy-conservation error after the
 correction of @eq-energy is
-\SI{`{python} f"{nstar['energy_error_pct']:.2f}"`}{\percent}, confirming the
+`{python} f"{nstar['energy_error_pct']:.2f}"` %, confirming the
 integrator is internally consistent. Re-running the identical metric code on the
 SUNSTAR geometry gives a field ratio of
 $`{python} f"{sunstar['E_ratio']:.2f}"`$ and an energy error of
-\SI{`{python} f"{sunstar['energy_error_pct']:.2f}"`}{\percent} despite the
+`{python} f"{sunstar['energy_error_pct']:.2f}"` % despite the
 $2.7\times$ voltage and $1.63\times$ size change; that these two purely
 geometric/numerical quantities are essentially unchanged across so large a span
 is strong evidence that the solver is correct rather than tuned to a single case.
 
 The one quantity the model under-predicts is the absolute exit speed:
-\SI{`{python} f"{nstar['v_exit_mean']/1e3:.1f}"`}{\kilo\meter\per\second}
+`{python} f"{nstar['v_exit_mean']/1e3:.1f}"` km/s
 against the
-\SI{`{python} f"{v_theory_nstar/1e3:.1f}"`}{\kilo\meter\per\second} expected
+`{python} f"{v_theory_nstar/1e3:.1f}"` km/s expected
 from the full \SI{1074}{\volt} drop. The ions experience an effective potential
 drop of only about
-\SI{`{python} f"{nstar['delta_v_actual']:.0f}"`}{\volt} because, with no space
+`{python} f"{nstar['delta_v_actual']:.0f}"` V because, with no space
 charge, the bare accel grid depresses the potential inside the screen aperture;
 the same deficit, as a near-constant fraction ($54$--\SI{58}{\percent}) of the
 nominal voltage, recurs for SUNSTAR. This is the expected consequence of solving
@@ -601,8 +601,8 @@ plt.close(fig)
 
 The gap, @fig-sweep-gap, produces the clearest trade-off in the whole study.
 Increasing it raises the exit speed appreciably -- from
-\SI{`{python} f"{gp_v_lo:.1f}"`}{\kilo\meter\per\second} to
-\SI{`{python} f"{gp_v_hi:.1f}"`}{\kilo\meter\per\second} -- because a more
+`{python} f"{gp_v_lo:.1f}"` km/s to
+`{python} f"{gp_v_hi:.1f}"` km/s -- because a more
 distant accel grid depresses the screen-aperture potential less, so ions start
 from a higher potential and gain more energy. At the same time the efficiency
 degrades markedly: transparency falls from `{python} gp_beam_hi` to
