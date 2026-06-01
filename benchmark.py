@@ -23,7 +23,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
-# Consistent, readable fonts for the report figures (same across every plot).
 plt.rcParams.update({
     "font.size": 12, "axes.titlesize": 13, "axes.labelsize": 12,
     "xtick.labelsize": 11, "ytick.labelsize": 11, "legend.fontsize": 10,
@@ -43,11 +42,11 @@ from simulation import (
 class Case:
     """A single reference thruster geometry + operating point to benchmark."""
     name: str
-    label: str          # human-readable, used in plot titles / filenames
+    label: str
 
     v_screen: float     # V  screen grid voltage (also upstream plasma BC)
-    v_accel:  float     # V  accel  grid voltage
-    v_ref:    float     # V  voltage used for the theoretical exit-speed ref
+    v_accel:  float     # V
+    v_ref:    float     # V  voltage used for the theoretical exit-speed calculation
 
     ds:  float          # m  screen aperture diameter
     da:  float          # m  accel  aperture diameter
@@ -112,7 +111,6 @@ NSTAR = Case(
 )
 
 # SUNSTAR: Farnell et al. (2003), Fig 5
-# gap is inferred (Fig 5 omits it); see BENCHMARK.md for the derivation.
 SUNSTAR = Case(
     name="sunstar", label="SUNSTAR (Farnell et al. 2003)",
     v_screen=2880.0, v_accel=-360.0, v_ref=2880.0,
@@ -130,7 +128,6 @@ CASES = [NSTAR, SUNSTAR]
 def build_field(c: Case) -> ElectricField:
     field = ElectricField(grid_size=c.grid_size, dx=c.dx)
 
-    # Left ghost row = discharge-chamber plasma potential (fixed Dirichlet BC).
     field.V[0, :] = c.v_screen
 
     # Screen grid - two solid strips, aperture ds centred on y_c
@@ -146,7 +143,6 @@ def build_field(c: Case) -> ElectricField:
 
 
 def run_ions(c: Case, field: ElectricField) -> IonSimulation:
-    # Ions start just inside the screen aperture, one cell off the boundary.
     gen = IonGenerator(
         mass=XENON_MASS,
         charge=XENON_CHARGE,
@@ -321,7 +317,7 @@ def metric_gap_field(c: Case, field: ElectricField):
     ix_hi = int(c.x_ag_lo / c.dx)
     j_c   = int(c.y_c / c.dx)
 
-    # On-axis (centreline) peak, sampled to avoid the cell-edge artefacts.
+    # On-axis (centreline) peak
     E_center = np.sqrt(field.Ex[ix_lo:ix_hi + 1, j_c]**2
                        + field.Ey[ix_lo:ix_hi + 1, j_c]**2).max()
 
@@ -364,7 +360,7 @@ def metric_divergence(c: Case, sim: IonSimulation, passes):
             continue
         vx, vy = result
         if vx <= 0:
-            continue   # backward-moving ion - skip
+            continue   # backward-moving ion 
         vx_list.append(vx)
         vy_list.append(vy)
         y_init_list.append(sim.trajectories[ion_idx, 1, 0])
@@ -471,7 +467,7 @@ def plot_overview(c: Case, field: ElectricField, sim: IonSimulation,
 
 
 # =============================================================================
-# Report API - return figures / dicts instead of printing / saving
+# Report API
 # =============================================================================
 
 def compute_potential_metrics(c: Case, field: ElectricField) -> dict:
@@ -577,7 +573,7 @@ def run_case_for_report(c: Case) -> dict:
 
 
 def make_overview_fig(c: Case, r: dict) -> plt.Figure:
-    """Return the overview figure without saving or closing it."""
+    """Potential map with ion trajectories overlaid."""
     field       = r["field"]
     sim         = r["sim"]
     passes      = r["passes"]
@@ -631,7 +627,7 @@ def make_overview_fig(c: Case, r: dict) -> plt.Figure:
 
 
 def make_potential_fig(c: Case, r: dict) -> plt.Figure:
-    """Return the on-axis potential profile figure without saving or closing it."""
+    """On-axis electric potential profile."""
     field = r["field"]
     j_c   = int(c.y_c / c.dx)
     x_mm  = np.arange(c.nx) * c.dx * 1e3
@@ -657,7 +653,7 @@ def make_potential_fig(c: Case, r: dict) -> plt.Figure:
 
 
 def make_divergence_fig(c: Case, r: dict) -> plt.Figure:
-    """Return the divergence scatter figure without saving or closing it."""
+    """Exit divergence angle vs. radial starting position."""
     angles   = r["_angles"]
     y_init   = r["_y_init"]
     div_mean = r["divergence_mean"]

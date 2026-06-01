@@ -1,9 +1,4 @@
 """
-Parameter sensitivity study - answers the presentation's central question:
-
-    "How does the configuration of the grid aperture in an ion thruster
-     influence the acceleration, trajectory, and efficiency of the beam?"
-
 It takes the validated NSTAR geometry as a baseline and sweeps each of the four
 parameters listed on slide 4 of the presentation one at a time, re-solving the
 electric field and re-integrating the Xe+ ions for every value:
@@ -19,9 +14,6 @@ central question asks about:
     acceleration -> mean exit speed, effective Delta V
     trajectory   -> mean beam divergence half-angle
     efficiency   -> beam transparency (passed ions) and accel-grid impingement
-
-The benchmark machinery is reused as-is; only the compute is shared (no plots
-from benchmark are touched).  ASCII-only console output (Windows cp1252).
 """
 
 from dataclasses import replace
@@ -48,7 +40,7 @@ def compute_metrics(c) -> dict:
     """
     Build the field, run the ions and return a dict of scalar output metrics
     for one Case.  Mirrors benchmark.py's metric definitions, but returns
-    numbers instead of printing / plotting.
+    numbers
     """
     field = build_field(c)
     sim = run_ions(c, field)
@@ -97,10 +89,8 @@ def compute_metrics(c) -> dict:
 # =============================================================================
 # Sweep definitions
 # =============================================================================
-# Each sweep maps a human label + an x-axis to a function that turns one
-# x-value into a varied Case (derived from the NSTAR baseline).
 
-def _set_da_ratio(r):       # accel aperture as a fraction of the screen aperture
+def _set_da_ratio(r):       
     return replace(NSTAR, da=r * NSTAR.ds)
 
 def _set_ta(ta_mm):
@@ -109,7 +99,7 @@ def _set_ta(ta_mm):
 def _set_gap(gap_mm):
     return replace(NSTAR, gap=gap_mm * 1e-3)
 
-def _set_voltage_ratio(R):  # R = V_screen / |V_accel|; screen voltage fixed
+def _set_voltage_ratio(R):  # R = V_screen / |V_accel|
     return replace(NSTAR, v_accel=-NSTAR.v_screen / R)
 
 
@@ -215,7 +205,7 @@ def _plot_sweep(spec, rows):
 
 
 def run_sweep_for_report(spec) -> dict:
-    """Run a parameter sweep silently; return the rows dict (no prints, no saves)."""
+    """Run a parameter sweep and return the metric rows dict."""
     rows = {k: [] for k in
             ("v_exit_kms", "delta_v_eff", "divergence",
              "eta_div", "n_beam", "n_accel_hit", "transparency")}
@@ -227,7 +217,7 @@ def run_sweep_for_report(spec) -> dict:
 
 
 def make_sweep_fig(spec, rows) -> plt.Figure:
-    """Return the four-panel sweep figure without saving or closing it."""
+    """Four-panel parameter sweep figure."""
     x = spec["values"]
     fig, axes = plt.subplots(2, 2, figsize=(11, 8))
     fig.suptitle(f"Parameter sweep - {spec['title']}  (NSTAR baseline)",

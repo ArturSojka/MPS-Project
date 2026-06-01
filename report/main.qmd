@@ -30,8 +30,7 @@ execute:
 
 import sys, os
 
-# Add the project root (parent of the report/ directory) to the Python path.
-# Quarto sets CWD to the .qmd file's directory, so the project root is '..'.
+# Quarto sets CWD to the .qmd directory; add project root so simulation/benchmark are importable.
 _root = os.path.abspath(os.path.join(os.getcwd(), '..'))
 if _root not in sys.path:
     sys.path.insert(0, _root)
@@ -53,11 +52,9 @@ from benchmark import (
 )
 from sensitivity import SWEEPS, run_sweep_for_report, make_sweep_fig
 
-# ---- Benchmark cases --------------------------------------------------------
 nstar   = run_case_for_report(NSTAR)
 sunstar = run_case_for_report(SUNSTAR)
 
-# ---- Sensitivity sweeps (one per parameter) ---------------------------------
 sweep_data = {}
 for spec in SWEEPS:
     sweep_data[spec['key']] = {'spec': spec, 'rows': run_sweep_for_report(spec)}
@@ -74,99 +71,70 @@ ap_accel_hi = int(ap['rows']['n_accel_hit'][0])
 gp_beam_lo  = int(gp['rows']['n_beam'][-1])
 gp_beam_hi  = int(gp['rows']['n_beam'][0])
 
-# ---- Unit-aware quantities via pint -----------------------------------------
 ureg = pint.UnitRegistry()
 Q_   = ureg.Quantity
 
-# Theoretical exit speed from the full nominal voltage drop
-v_theory_nstar = Q_(float(np.sqrt(2 * XENON_CHARGE * NSTAR.v_ref  / XENON_MASS)), 'm/s').to('km/s')
+# theoretical exit speed from the full nominal voltage drop (no space-charge loss)
+v_theory_nstar = Q_(float(np.sqrt(2 * XENON_CHARGE * NSTAR.v_ref / XENON_MASS)), 'm/s').to('km/s')
 
-# NSTAR benchmark quantities
-nstar_vmin     = Q_(nstar['v_min_axial'],    'V')
-nstar_eerr     = Q_(nstar['energy_error_pct'], 'percent')
-nstar_E_ratio  = Q_(nstar['E_ratio'],        '')            # dimensionless
-nstar_v_exit   = Q_(nstar['v_exit_mean'],    'm/s').to('km/s')
-nstar_dV       = Q_(nstar['delta_v_actual'], 'V')
-nstar_div_ang  = Q_(nstar['divergence_mean'], 'degree')
+nstar_vmin     = Q_(nstar['v_min_axial'],       'V')
+nstar_eerr     = Q_(nstar['energy_error_pct'],  'percent')
+nstar_E_ratio  = Q_(nstar['E_ratio'],           '')   # '' = dimensionless in pint
+nstar_v_exit   = Q_(nstar['v_exit_mean'],       'm/s').to('km/s')
+nstar_dV       = Q_(nstar['delta_v_actual'],    'V')
+nstar_div_ang  = Q_(nstar['divergence_mean'],   'degree')
 
-# SUNSTAR benchmark quantities
 sunstar_eerr    = Q_(sunstar['energy_error_pct'], 'percent')
 sunstar_E_ratio = Q_(sunstar['E_ratio'],          '')
 
-# Gap sweep speeds (rows['v_exit_kms'] is already km/s)
+# rows['v_exit_kms'] is stored in km/s by compute_metrics
 gp_v_lo_qty = Q_(float(gp['rows']['v_exit_kms'][0]),  'km/s')
 gp_v_hi_qty = Q_(float(gp['rows']['v_exit_kms'][-1]), 'km/s')
 
-# Voltage sweep divergence angles (R goes from 2 at index 0 to 18 at index -1)
+# voltage sweep: R=2 at index 0, R=18 at index -1
 vt_div_R2_qty  = Q_(float(vt['rows']['divergence'][0]),  'degree')
 vt_div_R18_qty = Q_(float(vt['rows']['divergence'][-1]), 'degree')
 
-# A length quantity in mm — its .units drives all position axis labels
-nstar_length = Q_(NSTAR.l, 'm').to('mm')  # centre-to-centre aperture spacing
+nstar_length = Q_(NSTAR.l, 'm').to('mm')
 
 def _label_sweep_axes(fig):
-    """Re-label the y-axes of a 4-panel sweep figure from the pint quantities."""
-    axes = fig.axes   # row-major: [top-left, top-right, bottom-left, bottom-right]
+    """Relabel y-axes of a sweep figure with pint-derived unit strings."""
+    axes = fig.axes  # row-major: [top-left, top-right, bottom-left, bottom-right]
     axes[0].set_ylabel(f"Mean exit speed ({nstar_v_exit.units:~C})")
     axes[1].set_ylabel(f"Mean divergence half-angle ({nstar_div_ang.units:~C})")
     axes[2].set_ylabel(f"Beam transparency ({nstar_eerr.units:~C})")
     axes[3].set_ylabel(f"Accel-grid impingement (/{NSTAR.n_ions})")
 ```
 
-## Abstract {.unnumbered}
-
-We build a two-dimensional electrostatic model of the ion-optics region of a
-gridded ion thruster and use it to study how the geometry of the accelerating
-grids governs the extracted ion beam. The electric potential is obtained by
-solving Laplace's equation on a finite-difference grid with Jacobi relaxation;
-the electric field follows from its gradient, and singly charged xenon ions are
-integrated through the field with an energy-conserving Euler-Cromer scheme. The
-whole simulation is wrapped in a custom visualization layer built on the Manim
-animation library, which renders the potential map, the field vectors, the
-streamlines and the time-resolved ion trajectories as video. The model is first
-validated against two published grid sets, the NSTAR flight thruster and the
-scaled-up SUNSTAR design, reproducing the correct saddle-shaped on-axis
-potential, the sub-unity field-spreading ratio in the inter-grid gap, and the
-qualitative beam-focusing behaviour. We then answer the project's central
-question -- how the grid-aperture configuration influences the acceleration,
-trajectory and efficiency of the beam -- through a one-parameter-at-a-time
-sensitivity study of four design variables. The geometric trends are captured
-correctly, and the residual disagreements with the published data are shown to
-trace back to the model's single deliberate simplification: solving Laplace's
-rather than Poisson's equation, i.e.\ neglecting space charge.
-
 ## Introduction {#sec-intro}
 
-A gridded ion thruster produces thrust by electrostatically accelerating ions
-extracted from a discharge plasma. Neutral propellant -- xenon in the flight
-thrusters considered here -- is ionised in a discharge chamber, and the resulting
-ions are pulled out and accelerated through a pair of closely spaced, perforated
-electrodes known as the ion optics. The upstream electrode, the *screen grid*, is
-held near the plasma potential; the downstream electrode, the *accel grid*, is
-held strongly negative. The potential difference between them accelerates the ions
-to tens of kilometres per second, giving the thruster its characteristic very high
-specific impulse at very low thrust. NASA's Deep Space 1 (1998) and Dawn (2007)
-missions both used thrusters of this kind.
-
-The performance of the thruster is set in large part by the geometry of the two
-grids: the diameters of their apertures, their thicknesses, the gap between them
-and the voltages applied to them. The aim of this project is to model the
-electric field in the ion-optics region and to answer a single question, stated
-on the project poster:
+This project builds a two-dimensional electrostatic simulation of the ion-optics
+region of a gridded ion thruster, with the goal of answering the central question:
 
 > *How does the configuration of the grid aperture in an ion thruster influence
 > the acceleration, trajectory and efficiency of the beam?*
 
-To answer it we built a self-contained two-dimensional electrostatic simulator,
-gave it a dedicated Manim-based visualization layer, validated it against
-published thruster geometries, and then swept the four design parameters
-identified above. This report describes what is modelled (@sec-model), the
-numerical methods used including the implicit choices made (@sec-methods), the
-visualization architecture that turns the raw arrays into animations (@sec-viz),
-the validation against reference data (@sec-validation), the parameter
-sensitivity study that answers the central question (@sec-sensitivity), and
-finally the limitations of the approach and directions for future work
-(@sec-limits).
+The electric potential is obtained by solving Laplace's equation on a
+finite-difference grid with Jacobi relaxation; the electric field follows from
+its gradient, and singly charged xenon ions are integrated through the field with
+an energy-conserving Euler-Cromer scheme. A Manim-based visualization layer
+renders the potential map, field vectors, streamlines, and ion trajectories as
+animated video.
+
+Gridded ion thrusters produce thrust by electrostatically accelerating ions
+extracted from a discharge plasma. The upstream *screen grid* is held near the
+plasma potential while the downstream *accel grid* is held strongly negative,
+accelerating xenon ions to tens of kilometres per second. NASA's Deep Space 1
+(1998) and Dawn (2007) missions both used thrusters of this kind. Performance is
+governed largely by grid geometry -- aperture diameters, grid thicknesses, the
+inter-grid gap, and the applied voltages -- which motivates the sensitivity study
+in @sec-sensitivity.
+
+The model is validated against two published reference geometries (NSTAR and
+SUNSTAR) in @sec-validation and then used for a one-parameter-at-a-time sweep
+of four design variables in @sec-sensitivity. The physical model is described
+in @sec-model, numerical methods in @sec-methods, the visualization layer in
+@sec-viz, and limitations in @sec-limits.
 
 ## Physical model {#sec-model}
 
@@ -251,29 +219,13 @@ $$
 V_{i,j} = \frac{V_{i+1,j} + V_{i-1,j} + V_{i,j+1} + V_{i,j-1}}{4}.
 $$ {#eq-stencil}
 
-This relation is solved iteratively by Jacobi relaxation: starting from an
-initial guess, @eq-stencil is applied simultaneously to every free cell, while
-conductor cells keep their fixed potential, and the sweep is repeated until the
-largest change in any cell between successive sweeps falls below a tolerance
-$\varepsilon = 10^{-6}$. The method is simple, unconditionally stable and
-vectorises cleanly over the whole grid; the vectorised update is the numerical
-core of the solver:
-
-```python
-self.V[1:-1, 1:-1] = np.where(
-    self.conductor_mask,
-    self.V[1:-1, 1:-1],                              # keep conductors fixed
-    (self.V[2:, 1:-1] + self.V[:-2, 1:-1]            # 4-neighbour average
-     + self.V[1:-1, 2:] + self.V[1:-1, :-2]) / 4
-)
-```
-
-A one-cell ghost padding around the domain stores the Dirichlet boundary values
-so that the stencil can be applied uniformly to every interior cell without
-special casing the edges. After convergence the field components in @eq-efield
-are evaluated with central differences, and bilinear interpolation is used to
-sample both $V$ and $\vec{E}$ at arbitrary (off-grid) ion positions, giving the
-integrator a smooth, continuous force.
+Jacobi relaxation applies @eq-stencil simultaneously to every free cell --
+conductor cells hold their fixed potential throughout -- and repeats until the
+largest change between successive sweeps falls below $\varepsilon = 10^{-6}$.
+A one-cell ghost-padding stores the Dirichlet boundary values so no edge
+special-casing is needed. After convergence the field components (@eq-efield)
+are computed with central differences, and bilinear interpolation samples $V$
+and $\vec{E}$ at arbitrary ion positions.
 
 ### Particle integration: the Euler-Cromer scheme
 
@@ -310,150 +262,25 @@ $$
 $$ {#eq-energy}
 
 The correction reduces the energy error to about \SI{0.6}{\percent}
-(@sec-validation) and is implemented as:
-
-```python
-# Rescale |v| so that KE + qV stays constant (Farnell et al. 2003).
-V_now = self.field.get_potential_at_batch(self.x_pos, self.y_pos)
-ke_target = np.maximum(self._E_total - self.charge * V_now, 0.0)
-scale = np.sqrt(ke_target / (0.5 * self.mass * (self.x_vel**2 + self.y_vel**2)))
-self.x_vel *= scale
-self.y_vel *= scale
-```
+(@sec-validation).
 
 ## Visualization architecture {#sec-viz}
 
-A large part of the project went not into the physics solver but into turning
-its raw output -- two NumPy arrays for the potential and the field, plus a
-$(\text{ions}\times2\times\text{steps})$ trajectory array -- into an animated,
-physically readable video. This is done with a thin object-oriented layer built
-on the Manim animation library. The design goal was a clean separation of
-concerns: the `simulation` package knows only about physics and SI units and
-never imports Manim, while the `visualization` package knows only how to draw
-and never touches the field solver. The two are bridged by a single
-coordinate-conversion class.
+A thin object-oriented layer built on the Manim animation library turns the
+simulation output -- potential and field arrays plus a
+$(\text{ions}\times2\times\text{steps})$ trajectory array -- into animated video.
+The `simulation` package handles only physics and never imports Manim; the
+`visualization` package handles only rendering and never touches the solver. A
+single `CoordsConverter` class bridges the three coordinate systems in play:
+array indices, physical metres, and Manim screen units.
 
-### Three coordinate systems
-
-The physics, the storage array and the screen each live in their own coordinate
-system, and almost every drawing operation needs to move between them. The
-`CoordsConverter` class centralises every one of these conversions so that no
-other piece of code has to know the conversion factors. The three systems are:
-the *array* system (integer cell indices $[0,n_x)\times[0,n_y)$ in which the
-solver stores $V$), the *real* system (physical metres, with the origin at the
-bottom-left corner of the domain), and the *manim* system (screen units, with
-the origin at the centre of the frame). The converter is constructed once from
-the grid dimensions and the Manim frame size, and exposes the six pairwise maps;
-the core real-to-screen map is a straight affine rescaling and recentring,
-applied either to a single point or vectorised over whole trajectories:
-
-```python
-def real2manim(self, x, y):
-    mx = self.manim_width / self.rmx        # metres -> screen-unit scale (x)
-    my = self.manim_height / self.rmy       # metres -> screen-unit scale (y)
-    if isinstance(x, (float, int)):
-        return np.array([(x - self.rmx / 2) * mx,    # recentre on the frame
-                         (y - self.rmy / 2) * my, 0.0])
-    return [np.array([(xp - self.rmx / 2) * mx,
-                      (yp - self.rmy / 2) * my, 0.0])
-            for xp, yp in zip(x, y)]
-```
-
-Because the conversion is isolated here, a Manim wrapper can take a physics
-object expressed in metres and place it correctly on screen with a single call,
-and the same call works whether it is handed one conductor corner or an entire
-array of ion positions.
-
-### Drawing the field
-
-The field is rendered by `MElectricField`, which offers three complementary
-views of the same data, used in different scenes. The potential map is drawn as a
-coloured background image: the interior of the $V$ array (the ghost padding
-stripped off) is normalised, passed through a Matplotlib diverging colormap, and
-turned into a Manim `ImageMobject` scaled to fill the frame. The field direction
-is shown either as a quiver of arrows or as flowing streamlines. The streamline
-view is the most striking: Manim's `StreamLines` takes a function that returns
-the field vector at a screen point, and we adapt the physics sampler to it by
-composing it with the coordinate converter, so that Manim can ask for the field
-"at this point on screen" and get back the correctly transformed physical field:
-
-```python
-def as_streamlines(self, width=1.0):
-    def func(p):                              # p is a screen-space point
-        ex, ey = self.field.get_field_at(
-            *self.converter.manim2real(p[0], p[1])   # screen -> metres
-        )
-        return np.array([ex, ey, 0])          # field vector back in screen space
-    return StreamLines(func, stroke_width=width)
-```
-
-The arrow view, `as_quiver`, instead samples the field on a regular sub-grid
-(every `arrow_every`-th cell), scales the longest arrow to a fixed length so the
-picture is readable regardless of the field magnitude, and emits one Manim
-`Vector` per sample. All three share the same converter, so they register
-pixel-for-pixel on top of one another.
-
-### Animating the ions
-
-The most involved wrapper is `MIonSimulation`, which turns the stored trajectory
-array into moving particles. Its workhorse, `get_ions`, builds one smooth Manim
-path per ion by mapping the whole trajectory through `real2manim` in a single
-vectorised call and colouring the ions along a gradient, then places a `Dot` at
-the start of each path:
-
-```python
-for i, c in enumerate(color_gradient(gradient, self.sim.n)):
-    path = VMobject(stroke_color=c)
-    traj = self.converter.real2manim(self.sim.trajectories[i, 0, :],
-                                     self.sim.trajectories[i, 1, :])
-    path.set_points_smoothly(traj)            # interpolated curve through the path
-    dot = Dot(traj[0], radius, color=c)
-```
-
-From these paths the class offers a deliberate accuracy-versus-cost trade-off.
-The cheap preview, `as_animated_paths`, sweeps a fading highlight along each
-static curve with `ShowPassingFlashWithThinningStrokeWidth`; it is fast to
-render but only suggests the motion. The accurate mode, `as_at_once`, instead
-drives a real `Dot` along each path with `MoveAlongPath` and attaches a
-`TracedPath` that draws a short dissipating tail behind it, so that the
-particle's screen position at every frame is its true simulated position:
-
-```python
-animations = [MoveAlongPath(dot, path) for path, dot in ions]
-for _, dot in ions:
-    trace = TracedPath(dot.get_center, dissipating_time=0.5,
-                       stroke_width=1.0, stroke_color=dot.get_color(),
-                       stroke_opacity=[0, 1])
-```
-
-Because `MoveAlongPath` is played with `rate_func=linear` and every ion path has
-the same number of stored steps, all ions advance in lock-step with the
-simulation clock, and the dissipating traces reproduce the look of a real ion
-beam being switched on.
-
-### Assembling a scene
-
-A complete scene is then just a short script that wires the physics objects to
-their wrappers through one shared converter. The screen and accel grids are added
-as `Conductor`s, the field is solved with `field.compute()`, and the background
-image, the field arrows, the coloured electrodes, the ion source and the animated
-ions are layered in drawing order:
-
-```python
-field.compute()
-self.add(m_field.as_bg_image())           # potential map (drawn first, behind)
-self.add(m_field.as_quiver(4))            # field arrows every 4th cell
-self.add(m_cond1.as_rect(), m_cond2.as_rect())   # the two electrodes
-objects, animations = m_sim.as_at_once([RED_E, RED_A])
-self.add(*objects)
-self.play(*animations, rate_func=linear, run_time=10)
-```
-
-The same handful of wrappers compose into every scene we render -- a static
-potential map, an animated quiver, flowing streamlines through a five-aperture
-grid stack, and the full beam animation -- by changing only which views are
-requested and in what order they are added, without ever duplicating the
-coordinate or colour logic.
+The `MElectricField` class renders the potential as a coloured background image
+and the field direction as either a scaled quiver of arrows or flowing
+streamlines. The `MIonSimulation` class maps each stored trajectory through the
+converter to produce a smooth on-screen path; in the full animation mode, a dot
+tracks each ion's true position with a short dissipating trace. Scenes are
+assembled by layering these views in drawing order, sharing one converter, so all
+elements register correctly on screen.
 
 ## Validation against published thrusters {#sec-validation}
 
@@ -688,41 +515,24 @@ plt.close(fig)
 
 ## Limitations and future work {#sec-limits}
 
-The dominant limitation of the model is that it solves Laplace's equation
-(@eq-laplace) rather than Poisson's equation
-$\nabla^2 V = -\rho/\varepsilon_0$, i.e.\ it neglects space charge. Two
-distinct effects are lost as a result. First, the positive ion beam between the
-grids is itself a space charge that lifts the on-axis potential towards the
-screen value; without it, the bare accel grid depresses the aperture potential
-and the simulated ions experience only about half of the nominal accelerating
-voltage. Second, the upstream discharge plasma and the thin sheath at the screen
-surface -- themselves a space-charge structure -- are absent, so nothing holds
-the screen aperture at the full plasma potential. Together these explain the
-under-predicted exit speed in @sec-validation; the same physics also bounds the
-aperture ratio (via electron backstreaming) and the gap (via breakdown) from the
-other side, which is why the sensitivity sweeps see only the geometric upside of
-a large aperture or a small gap and not the real penalty that keeps the NSTAR
-design interior.
+The dominant limitation is that the model solves Laplace's equation rather than
+Poisson's equation ($\nabla^2 V = -\rho/\varepsilon_0$), neglecting space
+charge. Two effects are lost: the positive ion beam would lift the in-gap
+potential towards the screen value, and the upstream plasma sheath would hold the
+screen aperture near plasma potential. Without either, the simulated ions
+experience only about half the nominal voltage drop, explaining the under-predicted
+exit speed. The same omission prevents the sensitivity study from capturing
+electron backstreaming (the real upper bound on aperture ratio) and electrical
+breakdown (the lower bound on gap).
 
-Three further simplifications are worth noting. The model is two-dimensional,
-whereas the reference codes are fully three-dimensional particle simulations; the
-circular apertures are represented as slots. The Euler-Cromer integrator is only
-first order, so although the energy correction of @eq-energy removes energy
-drift, the trajectory direction still accumulates an $O(\Delta t)$ error per
-step. Finally, the top and bottom domain boundaries are held at fixed potential,
-whereas the physically correct condition for a periodic aperture array would be
-zero radial gradient (Neumann); the effect is small near the centreline.
-
-The natural next step is to replace the Laplace solver with a self-consistent
-Poisson solver that carries the ion-beam space charge, which would lift the
-in-aperture potential and raise the effective accelerating voltage towards the
-measured value. Adding an explicit electron-backstreaming criterion (a threshold
-on the on-axis accel-aperture potential) would let the sensitivity study respect
-the dominant real-world constraint even within the present electrostatic
-framework. Beyond that, a higher-order or adaptive time integrator would reduce
-the residual trajectory error, periodic radial boundaries would improve the
-off-axis field, and extension to an axisymmetric or fully three-dimensional grid
-would allow direct quantitative comparison with the published thruster data.
+Secondary simplifications include the two-dimensional geometry (circular
+apertures become slots), a first-order Euler-Cromer integrator (energy drift is
+corrected but trajectory direction still accumulates $O(\Delta t)$ error per
+step), and fixed-potential top/bottom boundaries in place of the more accurate
+periodic Neumann condition. The primary extension would be a self-consistent
+Poisson solver; beyond that, a higher-order integrator and an axisymmetric or
+three-dimensional geometry would allow direct quantitative comparison with
+published thruster data.
 
 ## Conclusion
 
@@ -737,11 +547,9 @@ nearly identical across a $2.7\times$ voltage and $1.63\times$ size change.
 Using it to answer the project's central question, we found that the inter-grid
 gap is the dominant acceleration-versus-efficiency trade-off, the aperture ratio
 is the strongest efficiency lever, grid thickness is essentially a lifetime knob,
-and the voltage ratio mainly governs beam divergence. Where the model disagrees
-with the published data -- the under-predicted exit speed and the absence of the
-real upper limits on aperture size and lower limits on gap -- the disagreement
-traces cleanly back to the one effect the Laplace approximation omits: space
-charge.
+and the voltage ratio mainly governs beam divergence. Residual disagreements with
+published data are consistent with the model's deliberate simplification of
+solving Laplace's rather than Poisson's equation.
 
 ## References {.unnumbered}
 
