@@ -313,11 +313,15 @@ accel grid carving a local well. Ions launched across the screen aperture are
 accelerated through the gap and focused towards the axis; those launched near
 the aperture edge feel the strongest radial fringe field and a fraction of them
 are steered into the accel-grid walls rather than passing through. The positive
-screen grid repels the positive ions, so none strike it - exactly as expected.
+screen grid repels most of the positive ions, so only
+`{python} len(nstar['hits_screen'])` of the `{python} NSTAR.n_ions` ions strike
+it - the few launched right at the aperture rim, where the radial fringe field is
+strong enough to overcome the repulsion - against
+`{python} len(nstar['hits_accel'])` lost to the accel grid.
 
 ```{python}
 #| label: fig-overview
-#| fig-cap: "Converged electric potential (colour) and $\\mathrm{Xe}^{+}$ ion trajectories for the NSTAR geometry. Green paths reach the exit plane; red paths are lost to the accel grid. The positive screen grid is never struck."
+#| fig-cap: "Converged electric potential (colour) and $\\mathrm{Xe}^{+}$ ion trajectories for the NSTAR geometry. Green paths reach the exit plane; red paths are lost to the accel grid; magenta paths strike the positive screen grid, which repels almost all of the ions so that only a few rim ions reach it."
 #| out-width: "100%"
 
 fig = make_overview_fig(NSTAR, nstar)
@@ -332,11 +336,12 @@ The on-axis potential profile, @fig-potential, makes the accelerating structure
 explicit. The potential is flat at the screen value in the discharge region,
 drops through the inter-grid gap, reaches a minimum near the accel grid and then
 recovers towards zero downstream. The simulated on-axis minimum is
-`{python} f"{nstar_vmin.magnitude:.1f} {nstar_vmin.units:~C}"`, comfortably within the
-\SIrange{-50}{-150}{\volt} range reported by Wang et al. and, correctly, well
-above the \SI{-180}{\volt} accel-grid voltage itself, because the field spreads
-laterally through the aperture rather than reaching the full electrode potential
-on the axis.
+`{python} f"{nstar_vmin.magnitude:.1f} {nstar_vmin.units:~C}"`, which, correctly,
+stays well above the \SI{-180}{\volt} accel-grid voltage itself, because the field
+spreads laterally through the aperture rather than reaching the full electrode
+potential on the axis. The same shallow on-axis dip, sitting above the accel
+potential, is visible in the potential contours of Wang et al.
+(@fig-wang-potential).
 
 ```{python}
 #| label: fig-potential
@@ -393,10 +398,20 @@ nominal voltage, recurs for SUNSTAR. This is the expected consequence of solving
 Laplace rather than Poisson and is examined in @sec-limits. The beam divergence,
 @fig-divergence, rises monotonically from near zero on the axis to roughly
 $30^{\circ}$ at the aperture edge, in qualitative agreement with the reference
-velocity-vector plots; the mean half-angle of
-`{python} f"{nstar_div_ang.magnitude:.1f}"`$^{\circ}$ under-predicts the
-measured $\sim 22^{\circ}$ for the same space-charge reason (slower ions are
-over-collimated). The roughly parabolic, rather than linear, rise of the curve
+velocity-vector plots of Wang et al. (@fig-wang-beam), which likewise show the
+beam fanning outward toward the aperture edge. The quantitative comparison is
+favourable. The simulated mean half-angle of
+`{python} f"{nstar_div_ang.magnitude:.1f}"`$^{\circ}$ corresponds to a divergence
+thrust-correction factor $\cos\theta =$
+`{python} f"{np.cos(np.radians(nstar['divergence_mean'])):.2f}"`, matching the
+$0.97$-$0.98$ that Soulas measured for the NSTAR optics across its throttling
+range [@soulas2001]. The same value sits comfortably inside the $\sim\!15^{\circ}$
+divergence half-angle quoted for NSTAR by Bombardelli and Pelaez [@bombardelli2011]
+and used ($0.26$ rad) in the NSTAR plume model of Davis et al. [@davis1997].
+Further out, the simulated $95\%$-enclosure half-angle of
+`{python} f"{nstar['divergence_p95']:.1f}"`$^{\circ}$ is likewise close to the
+$26$-$29^{\circ}$ that Soulas reports for the $95\%$-current envelope. The roughly
+parabolic, rather than linear, rise of the curve
 about the centreline is itself physical: it is the spherical aberration of the
 electrostatic aperture lens. Paraxial ions near the axis see a nearly linear
 radial restoring field and stay well collimated, whereas ions near the aperture
