@@ -100,6 +100,17 @@ gp_v_hi_qty = Q_(float(gp['rows']['v_exit_kms'][-1]), 'km/s')
 # Voltage sweep divergence angles (R goes from 2 at index 0 to 18 at index -1)
 vt_div_R2_qty  = Q_(float(vt['rows']['divergence'][0]),  'degree')
 vt_div_R18_qty = Q_(float(vt['rows']['divergence'][-1]), 'degree')
+
+# A length quantity in mm — its .units drives all position axis labels
+nstar_length = Q_(NSTAR.l, 'm').to('mm')  # centre-to-centre aperture spacing
+
+def _label_sweep_axes(fig):
+    """Re-label the y-axes of a 4-panel sweep figure from the pint quantities."""
+    axes = fig.axes   # row-major: [top-left, top-right, bottom-left, bottom-right]
+    axes[0].set_ylabel(f"Mean exit speed ({nstar_v_exit.units:~C})")
+    axes[1].set_ylabel(f"Mean divergence half-angle ({nstar_div_ang.units:~C})")
+    axes[2].set_ylabel(f"Beam transparency ({nstar_eerr.units:~C})")
+    axes[3].set_ylabel(f"Accel-grid impingement (/{NSTAR.n_ions})")
 ```
 
 ## Abstract {.unnumbered}
@@ -483,6 +494,9 @@ screen grid repels the positive ions, so none strike it -- exactly as expected.
 #| out-width: "100%"
 
 fig = make_overview_fig(NSTAR, nstar)
+ax = fig.axes[0]
+ax.set_xlabel(f"x ({nstar_length.units:~C})")
+ax.set_ylabel(f"y ({nstar_length.units:~C})")
 plt.show()
 plt.close(fig)
 ```
@@ -491,7 +505,7 @@ The on-axis potential profile, @fig-potential, makes the accelerating structure
 explicit. The potential is flat at the screen value in the discharge region,
 drops through the inter-grid gap, reaches a minimum near the accel grid and then
 recovers towards zero downstream. The simulated on-axis minimum is
-`{python} f"{nstar_vmin.magnitude:.1f}"` V, comfortably within the
+`{python} f"{nstar_vmin.magnitude:.1f} {nstar_vmin.units:~C}"`, comfortably within the
 \SIrange{-50}{-150}{\volt} range reported by Wang et al. and, correctly, well
 above the \SI{-180}{\volt} accel-grid voltage itself, because the field spreads
 laterally through the aperture rather than reaching the full electrode potential
@@ -503,6 +517,9 @@ on the axis.
 #| out-width: "100%"
 
 fig = make_potential_fig(NSTAR, nstar)
+ax = fig.axes[0]
+ax.set_xlabel(f"x position ({nstar_length.units:~C})")
+ax.set_ylabel(f"Electric potential ({nstar_vmin.units:~C})")
 plt.show()
 plt.close(fig)
 ```
@@ -515,22 +532,22 @@ one-dimensional estimate $\Delta V / g$, the expected sub-unity ratio for a
 perforated electrode in which the field spreads through the holes rather than
 dropping fully across a solid gap. The energy-conservation error after the
 correction of @eq-energy is
-`{python} f"{nstar_eerr.magnitude:.2f}"` %, confirming the
+`{python} f"{nstar_eerr.magnitude:.2f} {nstar_eerr.units:~C}"`, confirming the
 integrator is internally consistent. Re-running the identical metric code on the
 SUNSTAR geometry gives a field ratio of
 $`{python} f"{sunstar_E_ratio.magnitude:.2f}"`$ and an energy error of
-`{python} f"{sunstar_eerr.magnitude:.2f}"` % despite the
+`{python} f"{sunstar_eerr.magnitude:.2f} {sunstar_eerr.units:~C}"` despite the
 $2.7\times$ voltage and $1.63\times$ size change; that these two purely
 geometric/numerical quantities are essentially unchanged across so large a span
 is strong evidence that the solver is correct rather than tuned to a single case.
 
 The one quantity the model under-predicts is the absolute exit speed:
-`{python} f"{nstar_v_exit.magnitude:.1f}"` km/s
+`{python} f"{nstar_v_exit.magnitude:.1f} {nstar_v_exit.units:~C}"`
 against the
-`{python} f"{v_theory_nstar.magnitude:.1f}"` km/s expected
+`{python} f"{v_theory_nstar.magnitude:.1f} {v_theory_nstar.units:~C}"` expected
 from the full \SI{1074}{\volt} drop. The ions experience an effective potential
 drop of only about
-`{python} f"{nstar_dV.magnitude:.0f}"` V because, with no space
+`{python} f"{nstar_dV.magnitude:.0f} {nstar_dV.units:~C}"` because, with no space
 charge, the bare accel grid depresses the potential inside the screen aperture;
 the same deficit, as a near-constant fraction ($54$--\SI{58}{\percent}) of the
 nominal voltage, recurs for SUNSTAR. This is the expected consequence of solving
@@ -548,6 +565,9 @@ over-collimated).
 #| out-width: "92%"
 
 fig = make_divergence_fig(NSTAR, nstar)
+ax = fig.axes[0]
+ax.set_xlabel(f"Starting position relative to centreline ({nstar_length.units:~C})")
+ax.set_ylabel(f"Exit divergence angle ({nstar_div_ang.units:~C})")
 plt.show()
 plt.close(fig)
 ```
@@ -586,6 +606,7 @@ the sweep.
 #| out-width: "100%"
 
 fig = make_sweep_fig(ap['spec'], ap['rows'])
+_label_sweep_axes(fig)
 plt.show()
 plt.close(fig)
 ```
@@ -608,6 +629,7 @@ extend grid life against erosion [@soulas2001].
 #| out-width: "100%"
 
 fig = make_sweep_fig(th['spec'], th['rows'])
+_label_sweep_axes(fig)
 plt.show()
 plt.close(fig)
 ```
@@ -616,8 +638,8 @@ plt.close(fig)
 
 The gap, @fig-sweep-gap, produces the clearest trade-off in the whole study.
 Increasing it raises the exit speed appreciably -- from
-`{python} f"{gp_v_lo_qty.magnitude:.1f}"` km/s to
-`{python} f"{gp_v_hi_qty.magnitude:.1f}"` km/s -- because a more
+`{python} f"{gp_v_lo_qty.magnitude:.1f} {gp_v_lo_qty.units:~C}"` to
+`{python} f"{gp_v_hi_qty.magnitude:.1f} {gp_v_hi_qty.units:~C}"` -- because a more
 distant accel grid depresses the screen-aperture potential less, so ions start
 from a higher potential and gain more energy. At the same time the efficiency
 degrades markedly: transparency falls from `{python} gp_beam_hi` to
@@ -634,6 +656,7 @@ not include.
 #| out-width: "100%"
 
 fig = make_sweep_fig(gp['spec'], gp['rows'])
+_label_sweep_axes(fig)
 plt.show()
 plt.close(fig)
 ```
@@ -658,6 +681,7 @@ exists at all.
 #| out-width: "100%"
 
 fig = make_sweep_fig(vt['spec'], vt['rows'])
+_label_sweep_axes(fig)
 plt.show()
 plt.close(fig)
 ```
