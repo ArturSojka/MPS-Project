@@ -17,6 +17,7 @@ format:
     include-in-header: preamble.tex
     toc: false
     number-sections: true
+jupyter: python3
 execute:
   echo: false
   warning: false
@@ -36,9 +37,8 @@ if _root not in sys.path:
     sys.path.insert(0, _root)
 
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import pint
 
 plt.rcParams.update({
     "font.size": 12, "axes.titlesize": 13, "axes.labelsize": 12,
@@ -57,34 +57,49 @@ from sensitivity import SWEEPS, run_sweep_for_report, make_sweep_fig
 nstar   = run_case_for_report(NSTAR)
 sunstar = run_case_for_report(SUNSTAR)
 
-# Theoretical exit speed from the full nominal voltage drop
-v_theory_nstar   = float(np.sqrt(2 * XENON_CHARGE * NSTAR.v_ref   / XENON_MASS))
-v_theory_sunstar = float(np.sqrt(2 * XENON_CHARGE * SUNSTAR.v_ref  / XENON_MASS))
-
 # ---- Sensitivity sweeps (one per parameter) ---------------------------------
 sweep_data = {}
 for spec in SWEEPS:
     sweep_data[spec['key']] = {'spec': spec, 'rows': run_sweep_for_report(spec)}
 
-# Convenience aliases for inline values
-ap   = sweep_data['aperture']
-th   = sweep_data['thickness']
-gp   = sweep_data['gap']
-vt   = sweep_data['voltage']
+ap = sweep_data['aperture']
+th = sweep_data['thickness']
+gp = sweep_data['gap']
+vt = sweep_data['voltage']
 
 ap_beam_lo  = int(ap['rows']['n_beam'][0])
 ap_beam_hi  = int(ap['rows']['n_beam'][-1])
 ap_accel_lo = int(ap['rows']['n_accel_hit'][-1])
 ap_accel_hi = int(ap['rows']['n_accel_hit'][0])
+gp_beam_lo  = int(gp['rows']['n_beam'][-1])
+gp_beam_hi  = int(gp['rows']['n_beam'][0])
 
-gp_v_lo    = float(gp['rows']['v_exit_kms'][0])
-gp_v_hi    = float(gp['rows']['v_exit_kms'][-1])
-gp_beam_lo = int(gp['rows']['n_beam'][-1])
-gp_beam_hi = int(gp['rows']['n_beam'][0])
+# ---- Unit-aware quantities via pint -----------------------------------------
+ureg = pint.UnitRegistry()
+Q_   = ureg.Quantity
 
-# Voltage sweep: values go from R=2 (index 0) to R=18 (index -1)
-vt_div_R2  = float(vt['rows']['divergence'][0])
-vt_div_R18 = float(vt['rows']['divergence'][-1])
+# Theoretical exit speed from the full nominal voltage drop
+v_theory_nstar = Q_(float(np.sqrt(2 * XENON_CHARGE * NSTAR.v_ref  / XENON_MASS)), 'm/s').to('km/s')
+
+# NSTAR benchmark quantities
+nstar_vmin     = Q_(nstar['v_min_axial'],    'V')
+nstar_eerr     = Q_(nstar['energy_error_pct'], 'percent')
+nstar_E_ratio  = Q_(nstar['E_ratio'],        '')            # dimensionless
+nstar_v_exit   = Q_(nstar['v_exit_mean'],    'm/s').to('km/s')
+nstar_dV       = Q_(nstar['delta_v_actual'], 'V')
+nstar_div_ang  = Q_(nstar['divergence_mean'], 'degree')
+
+# SUNSTAR benchmark quantities
+sunstar_eerr    = Q_(sunstar['energy_error_pct'], 'percent')
+sunstar_E_ratio = Q_(sunstar['E_ratio'],          '')
+
+# Gap sweep speeds (rows['v_exit_kms'] is already km/s)
+gp_v_lo_qty = Q_(float(gp['rows']['v_exit_kms'][0]),  'km/s')
+gp_v_hi_qty = Q_(float(gp['rows']['v_exit_kms'][-1]), 'km/s')
+
+# Voltage sweep divergence angles (R goes from 2 at index 0 to 18 at index -1)
+vt_div_R2_qty  = Q_(float(vt['rows']['divergence'][0]),  'degree')
+vt_div_R18_qty = Q_(float(vt['rows']['divergence'][-1]), 'degree')
 ```
 
 ## Abstract {.unnumbered}
@@ -476,7 +491,7 @@ The on-axis potential profile, @fig-potential, makes the accelerating structure
 explicit. The potential is flat at the screen value in the discharge region,
 drops through the inter-grid gap, reaches a minimum near the accel grid and then
 recovers towards zero downstream. The simulated on-axis minimum is
-`{python} f"{nstar['v_min_axial']:.1f}"` V, comfortably within the
+`{python} f"{nstar_vmin.magnitude:.1f}"` V, comfortably within the
 \SIrange{-50}{-150}{\volt} range reported by Wang et al. and, correctly, well
 above the \SI{-180}{\volt} accel-grid voltage itself, because the field spreads
 laterally through the aperture rather than reaching the full electrode potential
@@ -495,27 +510,27 @@ plt.close(fig)
 ### Quantitative metrics
 
 Three further metrics confirm the solver behaves correctly. The peak on-axis
-field in the gap is only $`{python} f"{nstar['E_ratio']:.2f}"`$ times the naive
+field in the gap is only $`{python} f"{nstar_E_ratio.magnitude:.2f}"`$ times the naive
 one-dimensional estimate $\Delta V / g$, the expected sub-unity ratio for a
 perforated electrode in which the field spreads through the holes rather than
 dropping fully across a solid gap. The energy-conservation error after the
 correction of @eq-energy is
-`{python} f"{nstar['energy_error_pct']:.2f}"` %, confirming the
+`{python} f"{nstar_eerr.magnitude:.2f}"` %, confirming the
 integrator is internally consistent. Re-running the identical metric code on the
 SUNSTAR geometry gives a field ratio of
-$`{python} f"{sunstar['E_ratio']:.2f}"`$ and an energy error of
-`{python} f"{sunstar['energy_error_pct']:.2f}"` % despite the
+$`{python} f"{sunstar_E_ratio.magnitude:.2f}"`$ and an energy error of
+`{python} f"{sunstar_eerr.magnitude:.2f}"` % despite the
 $2.7\times$ voltage and $1.63\times$ size change; that these two purely
 geometric/numerical quantities are essentially unchanged across so large a span
 is strong evidence that the solver is correct rather than tuned to a single case.
 
 The one quantity the model under-predicts is the absolute exit speed:
-`{python} f"{nstar['v_exit_mean']/1e3:.1f}"` km/s
+`{python} f"{nstar_v_exit.magnitude:.1f}"` km/s
 against the
-`{python} f"{v_theory_nstar/1e3:.1f}"` km/s expected
+`{python} f"{v_theory_nstar.magnitude:.1f}"` km/s expected
 from the full \SI{1074}{\volt} drop. The ions experience an effective potential
 drop of only about
-`{python} f"{nstar['delta_v_actual']:.0f}"` V because, with no space
+`{python} f"{nstar_dV.magnitude:.0f}"` V because, with no space
 charge, the bare accel grid depresses the potential inside the screen aperture;
 the same deficit, as a near-constant fraction ($54$--\SI{58}{\percent}) of the
 nominal voltage, recurs for SUNSTAR. This is the expected consequence of solving
@@ -523,7 +538,7 @@ Laplace rather than Poisson and is examined in @sec-limits. The beam divergence,
 @fig-divergence, rises monotonically from near zero on the axis to roughly
 $30^{\circ}$ at the aperture edge, in qualitative agreement with the reference
 velocity-vector plots; the mean half-angle of
-$`{python} f"{nstar['divergence_mean']:.1f}"`^{\circ}$ under-predicts the
+$`{python} f"{nstar_div_ang.magnitude:.1f}"`^{\circ}$ under-predicts the
 measured $\sim 22^{\circ}$ for the same space-charge reason (slower ions are
 over-collimated).
 
@@ -601,8 +616,8 @@ plt.close(fig)
 
 The gap, @fig-sweep-gap, produces the clearest trade-off in the whole study.
 Increasing it raises the exit speed appreciably -- from
-`{python} f"{gp_v_lo:.1f}"` km/s to
-`{python} f"{gp_v_hi:.1f}"` km/s -- because a more
+`{python} f"{gp_v_lo_qty.magnitude:.1f}"` km/s to
+`{python} f"{gp_v_hi_qty.magnitude:.1f}"` km/s -- because a more
 distant accel grid depresses the screen-aperture potential less, so ions start
 from a higher potential and gain more energy. At the same time the efficiency
 degrades markedly: transparency falls from `{python} gp_beam_hi` to
@@ -629,8 +644,8 @@ Varying the voltage ratio $R = V_\mathrm{s}/|V_\mathrm{a}|$ with the screen
 voltage fixed, @fig-sweep-voltage, mainly affects focusing. A more negative
 accel grid (small $R$, a deeper well) pulls harder on the off-axis ions and
 widens the beam, raising the mean divergence from about
-$`{python} f"{vt_div_R18:.1f}"`^{\circ}$ at $R=18$ to
-$`{python} f"{vt_div_R2:.1f}"`^{\circ}$ at $R=2$; the effect on the on-axis
+$`{python} f"{vt_div_R18_qty.magnitude:.1f}"`^{\circ}$ at $R=18$ to
+$`{python} f"{vt_div_R2_qty.magnitude:.1f}"`^{\circ}$ at $R=2$; the effect on the on-axis
 exit speed is mild, because the *net* accelerating voltage is set chiefly by the
 screen voltage, not the accel voltage. As with the aperture ratio, the model
 sees only the focusing trend and not the lower bound on $|V_\mathrm{a}|$ imposed
