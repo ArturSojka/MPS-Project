@@ -59,7 +59,7 @@ class Case:
     kTe: float = 5.0    # eV electron temperature (sets the Bohm injection speed)
 
     grid_size: int = 5
-    n_ions: int = 50
+    n_ions: int = 1000
     steps:  int = 3000
     dt:     float = 1e-10
     seed:   int = 42
@@ -436,18 +436,37 @@ def plot_overview(c: Case, field: ElectricField, sim: IonSimulation,
     ax.axvline(c.x_exit * 1e3, ls=':', color='white', lw=1, alpha=0.7,
                label='Exit measurement line')
 
-    for ion_idx in passes:
-        ax.plot(sim.trajectories[ion_idx, 0, :] * 1e3,
-                sim.trajectories[ion_idx, 1, :] * 1e3,
-                'lime', lw=0.8, alpha=0.7)
-    for ion_idx in hits_accel:
-        ax.plot(sim.trajectories[ion_idx, 0, :] * 1e3,
-                sim.trajectories[ion_idx, 1, :] * 1e3,
-                'r-', lw=0.8, alpha=0.7)
-    for ion_idx in hits_screen:
-        ax.plot(sim.trajectories[ion_idx, 0, :] * 1e3,
-                sim.trajectories[ion_idx, 1, :] * 1e3,
-                'm-', lw=0.8, alpha=0.7)
+    def _thin(idx, m=30):
+        idx = list(idx)
+        if len(idx) <= m:
+            return idx
+        step = len(idx) / m
+        return [idx[int(k * step)] for k in range(m)]
+
+    def _end_at_grid(ion_idx):
+        x_traj = sim.trajectories[ion_idx, 0, :]
+        y_traj = sim.trajectories[ion_idx, 1, :]
+        for step in range(len(x_traj)):
+            i = int(np.clip(x_traj[step] / c.dx, 0, c.nx - 1))
+            j = int(np.clip(y_traj[step] / c.dx, 0, c.ny - 1))
+            if field.conductor_mask[i, j]:
+                return step + 1
+        return len(x_traj)
+
+    def _end_at_exit(ion_idx):
+        x_traj = sim.trajectories[ion_idx, 0, :]
+        past = np.nonzero(x_traj >= c.x_exit)[0]
+        return (past[0] + 1) if len(past) else len(x_traj)
+
+    def _plot(idx, end_fn, style):
+        for ion_idx in idx:
+            e = end_fn(ion_idx)
+            ax.plot(sim.trajectories[ion_idx, 0, :e] * 1e3,
+                    sim.trajectories[ion_idx, 1, :e] * 1e3, style, lw=0.8, alpha=0.7)
+
+    _plot(_thin(passes),      _end_at_exit, 'lime')
+    _plot(_thin(hits_accel),  _end_at_grid, 'r-')
+    _plot(_thin(hits_screen), _end_at_grid, 'm-')
 
     handles = [
         mpatches.Patch(color='lime',      label='Passed (beam)'),
@@ -601,15 +620,39 @@ def make_overview_fig(c: Case, r: dict) -> plt.Figure:
     _rect(c.x_ag_lo, c.x_ag_hi, c.y_ag_ap_hi, c.l,          'tomato')
     ax.axvline(c.x_exit * 1e3, ls=':', color='white', lw=1, alpha=0.7)
 
-    for ion_idx in passes:
-        ax.plot(sim.trajectories[ion_idx, 0, :] * 1e3,
-                sim.trajectories[ion_idx, 1, :] * 1e3, 'lime', lw=0.8, alpha=0.7)
-    for ion_idx in hits_accel:
-        ax.plot(sim.trajectories[ion_idx, 0, :] * 1e3,
-                sim.trajectories[ion_idx, 1, :] * 1e3, 'r-', lw=0.8, alpha=0.7)
-    for ion_idx in hits_screen:
-        ax.plot(sim.trajectories[ion_idx, 0, :] * 1e3,
-                sim.trajectories[ion_idx, 1, :] * 1e3, 'm-', lw=0.8, alpha=0.7)
+    def _thin(idx, m=30):
+        idx = list(idx)
+        if len(idx) <= m:
+            return idx
+        step = len(idx) / m
+        return [idx[int(k * step)] for k in range(m)]
+
+    field = r["field"]
+
+    def _end_at_grid(ion_idx):
+        x_traj = sim.trajectories[ion_idx, 0, :]
+        y_traj = sim.trajectories[ion_idx, 1, :]
+        for step in range(len(x_traj)):
+            i = int(np.clip(x_traj[step] / c.dx, 0, c.nx - 1))
+            j = int(np.clip(y_traj[step] / c.dx, 0, c.ny - 1))
+            if field.conductor_mask[i, j]:
+                return step + 1
+        return len(x_traj)
+
+    def _end_at_exit(ion_idx):
+        x_traj = sim.trajectories[ion_idx, 0, :]
+        past = np.nonzero(x_traj >= c.x_exit)[0]
+        return (past[0] + 1) if len(past) else len(x_traj)
+
+    def _plot(idx, end_fn, style):
+        for ion_idx in idx:
+            e = end_fn(ion_idx)
+            ax.plot(sim.trajectories[ion_idx, 0, :e] * 1e3,
+                    sim.trajectories[ion_idx, 1, :e] * 1e3, style, lw=0.8, alpha=0.7)
+
+    _plot(_thin(passes),      _end_at_exit, 'lime')
+    _plot(_thin(hits_accel),  _end_at_grid, 'r-')
+    _plot(_thin(hits_screen), _end_at_grid, 'm-')
 
     handles = [
         mpatches.Patch(color='lime',      label='Passed (beam)'),

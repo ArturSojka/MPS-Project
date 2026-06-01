@@ -151,7 +151,7 @@ def run_sweep(spec) -> dict:
     print(f"   {'x':>8} | {'v_exit':>8} | {'dV_eff':>8} | {'diverg':>7} | "
           f"{'beam':>5} | {'accel':>5}")
     print(f"   {'':>8} | {'km/s':>8} | {'V':>8} | {'deg':>7} | "
-          f"{'/50':>5} | {'hit':>5}")
+          f"{f'/{NSTAR.n_ions}':>5} | {'hit':>5}")
 
     rows = {k: [] for k in
             ("v_exit_kms", "delta_v_eff", "divergence",
@@ -193,7 +193,7 @@ def _plot_sweep(spec, rows):
           "tab:green", "Trajectory - beam divergence")
     panel(axes[1, 0], rows["transparency"] * 100, "Beam transparency (%)",
           "tab:purple", "Efficiency - ions reaching exit")
-    panel(axes[1, 1], rows["n_accel_hit"], "Accel-grid impingement (/50)",
+    panel(axes[1, 1], rows["n_accel_hit"], f"Accel-grid impingement (/{NSTAR.n_ions})",
           "tab:red", "Efficiency - accel-grid losses")
 
     fig.tight_layout(rect=(0, 0, 1, 0.96))
@@ -239,7 +239,7 @@ def make_sweep_fig(spec, rows) -> plt.Figure:
           "tab:green",  "Trajectory - beam divergence")
     panel(axes[1, 0], rows["transparency"] * 100,  "Beam transparency (%)",
           "tab:purple", "Efficiency - ions reaching exit")
-    panel(axes[1, 1], rows["n_accel_hit"],         "Accel-grid impingement (/50)",
+    panel(axes[1, 1], rows["n_accel_hit"],         f"Accel-grid impingement (/{NSTAR.n_ions})",
           "tab:red",    "Efficiency - accel-grid losses")
 
     fig.tight_layout(rect=(0, 0, 1, 0.96))
