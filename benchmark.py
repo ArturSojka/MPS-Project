@@ -749,7 +749,7 @@ def run_case(c: Case):
 def main():
     for c in CASES:
         run_case(c)
-    print("\nDone. Plots saved as benchmark_<case>_{overview,potential,divergence}.png")
+    print("\nPlots saved as benchmark_<case>_{overview,potential,divergence}.png")
 
 
 if __name__ == "__main__":

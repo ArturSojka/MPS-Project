@@ -333,9 +333,9 @@ plt.close(fig)
 ```
 
 The on-axis potential profile, @fig-potential, makes the accelerating structure
-explicit. The potential is flat at the screen value in the discharge region,
-drops through the inter-grid gap, reaches a minimum near the accel grid and then
-recovers towards zero downstream. The simulated on-axis minimum is
+explicit. The potential starts near the screen voltage at the left boundary and falls
+continuously through the screen aperture and inter-grid gap, reaching a minimum
+near the accel grid before recovering toward zero downstream. The simulated on-axis minimum is
 `{python} f"{nstar_vmin.magnitude:.1f} {nstar_vmin.units:~C}"`, which, correctly,
 stays well above the \SI{-180}{\volt} accel-grid voltage itself, because the field
 spreads laterally through the aperture rather than reaching the full electrode
@@ -345,7 +345,7 @@ potential, is visible in the potential contours of Wang et al.
 
 ```{python}
 #| label: fig-potential
-#| fig-cap: "On-axis electric potential for the NSTAR geometry, showing the saddle-point structure: flat at the screen potential, a minimum near the accel grid, then recovery downstream."
+#| fig-cap: "On-axis electric potential for the NSTAR geometry. The potential falls from near the screen voltage at the left boundary, reaches a minimum near the accel grid, then recovers downstream."
 #| out-width: "100%"
 
 fig = make_potential_fig(NSTAR, nstar)
@@ -364,7 +364,7 @@ grid - which our two-dimensional solver (@fig-overview, @fig-potential)
 reproduces.
 
 ![Longitudinal potential contours for the NSTAR ion optics from the
-three-dimensional simulation of Wang et al. [-@wang2001], reproduced for
+three-dimensional simulation of Wang et al. [-@wang2001], shown for
 comparison with @fig-overview and @fig-potential. Contour values are normalised
 by \SI{5}{\volt}.](figures/wang_1.png){#fig-wang-potential width=80%}
 
@@ -497,19 +497,19 @@ plt.close(fig)
 
 ### Accel grid thickness
 
-Grid thickness, @fig-sweep-thickness, has the weakest influence on acceleration
-of all four parameters: the exit speed is flat to within about one percent
-across a fourfold change in $t_\mathrm{a}$, confirming that the accelerating
-field is set by the gap and the voltages, not by how much metal the electrode
-contains. Its real effect is on efficiency and lifetime: a thicker accel grid
-presents more wall area, so impingement rises gently and transparency falls.
-Thickness is therefore best understood as a lifetime/efficiency knob rather than
-an acceleration knob, consistent with the use of thick-accel-grid optics to
-extend grid life against erosion [@soulas2001].
+Grid thickness, @fig-sweep-thickness, has the weakest influence on exit speed:
+it stays flat to within about one percent (with a shallow minimum near mid-range)
+across a fourfold change in $t_\mathrm{a}$. The most striking optical effect is
+on divergence: a thicker grid acts as a longer collimating channel, and the mean
+half-angle falls from about $12.1^{\circ}$ to $9.7^{\circ}$ across the sweep.
+On efficiency, a thicker grid presents more wall area, so impingement rises and
+transparency falls. Thickness thus governs beam collimation and grid lifetime more
+than acceleration, consistent with the use of thick-accel-grid optics to extend
+grid life against erosion [@soulas2001].
 
 ```{python}
 #| label: fig-sweep-thickness
-#| fig-cap: "Effect of the accel grid thickness $t_\\mathrm{a}$. Acceleration is essentially unaffected; the main change is a small efficiency/lifetime trade."
+#| fig-cap: "Effect of the accel grid thickness $t_\\mathrm{a}$. Acceleration is essentially unaffected; accel-grid impingement rises substantially across the sweep while transparency falls, confirming that thickness is primarily an efficiency and lifetime parameter."
 #| out-width: "100%"
 
 fig = make_sweep_fig(th['spec'], th['rows'])
@@ -527,7 +527,7 @@ Increasing it raises the exit speed appreciably - from
 distant accel grid depresses the screen-aperture potential less, so ions start
 from a higher potential and gain more energy. At the same time the efficiency
 degrades markedly: transparency falls from `{python} gp_beam_hi` to
-`{python} gp_beam_lo` of `{python} NSTAR.n_ions` ions and impingement nearly triples, as the longer
+`{python} gp_beam_lo` of `{python} NSTAR.n_ions` ions and impingement rises by roughly 45%, as the longer
 drift through the fringe field defocuses the beam and drives more edge ions into
 the accel grid. The gap thus trades acceleration against beam capture, and the
 baseline value sits in the practical compromise region. The apparent message that
