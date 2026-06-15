@@ -1,4 +1,8 @@
-from .constants import ELECTRON_CHARGE, ELECTRON_MASS, PROTON_CHARGE, PROTON_MASS
+from .constants import (
+    ELECTRON_CHARGE, ELECTRON_MASS,
+    PROTON_CHARGE, PROTON_MASS,
+    XENON_CHARGE, XENON_MASS,
+)
 from .simulation import Conductor, ElectricField, IonGenerator, IonSimulation
 
 __all__ = [
@@ -6,8 +10,10 @@ __all__ = [
     "ELECTRON_MASS",
     "PROTON_CHARGE",
     "PROTON_MASS",
+    "XENON_CHARGE",
+    "XENON_MASS",
     "Conductor",
     "ElectricField",
     "IonGenerator",
-    "IonSimulation"
+    "IonSimulation",
 ]

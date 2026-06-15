@@ -99,6 +99,39 @@ class ElectricField:
             -(self.V[1:-1, 2:] - self.V[1:-1, :-2]) / (2 * self.dy)
         )
 
+    def get_potential_at_batch(
+        self,
+        x_arr: np.ndarray,
+        y_arr: np.ndarray
+    ) -> np.ndarray:
+        """
+        Get electric potential for a batch of points using bilinear interpolation.
+
+        If `(x,y)` is outside simulation this returns
+        the value for the closest simulated point.
+        """
+        i_arr = np.clip(x_arr / self.dx, 0, self.nx - 1)
+        j_arr = np.clip(y_arr / self.dy, 0, self.ny - 1)
+
+        i0 = i_arr.astype(int)
+        j0 = j_arr.astype(int)
+        i1 = np.minimum(i0 + 1, self.nx - 1)
+        j1 = np.minimum(j0 + 1, self.ny - 1)
+
+        dx_frac = i_arr - i0
+        dy_frac = j_arr - j0
+
+        # Interior V starts at [1,1] due to ghost-cell padding
+        V00 = self.V[i0 + 1, j0 + 1]
+        V10 = self.V[i1 + 1, j0 + 1]
+        V01 = self.V[i0 + 1, j1 + 1]
+        V11 = self.V[i1 + 1, j1 + 1]
+
+        return (V00 * (1 - dx_frac) * (1 - dy_frac)
+                + V10 * dx_frac       * (1 - dy_frac)
+                + V01 * (1 - dx_frac) * dy_frac
+                + V11 * dx_frac       * dy_frac)
+
     def get_field_at(self, x: float, y: float) -> Tuple[float, float]:
         """
         Get electric field vector at point `(x,y)` in real coordinates.
@@ -183,7 +216,8 @@ class IonGenerator:
         x_range: Tuple[float,float],
         y_range: Tuple[float,float],
         *,
-        randomize_v: bool = False
+        randomize_v: bool = False,
+        seed: int | None = None
     ) -> None:
         """
         Parameters
@@ -201,6 +235,8 @@ class IonGenerator:
         randomize_v :
             Whether to randomize initial velocities of the ions.
             If true `init_v` must not be `(0,0)`.
+        seed :
+            Seed for the random number generator. `None` gives fresh randomness.
         """
         self.mass = mass
         self.charge = charge
@@ -208,6 +244,7 @@ class IonGenerator:
         self.x1, self.x2 = x_range
         self.y1, self.y2 = y_range
         self.randomize_v = randomize_v
+        self.seed = seed
 
     def generate_initial(
         self,
@@ -216,8 +253,8 @@ class IonGenerator:
         """
         Generate the initial real coordinates and velocities of n ions.
         """
-        rng = np.random.default_rng()
-        
+        rng = np.random.default_rng(self.seed)
+
         xs = rng.random((n,)) * (self.x2 - self.x1) + self.x1
         ys = rng.random((n,)) * (self.y2 - self.y1) + self.y1
 
@@ -247,9 +284,10 @@ class IonSimulation:
             Amount of ions to generate.
         """
         self.field = field
+        self._conserve_energy = False
 
     def step(self, step: int, dt: float) -> None:
-        """One step of the simulations"""
+        """One step of the simulation."""
         Ex, Ey = self.field.get_field_at_batch(self.x_pos, self.y_pos)
         ax = self.generator.charge * Ex / self.generator.mass
         ay = self.generator.charge * Ey / self.generator.mass
@@ -260,6 +298,18 @@ class IonSimulation:
         self.x_pos = self.x_pos + self.x_vel * dt
         self.y_pos = self.y_pos + self.y_vel * dt
 
+        if self._conserve_energy:
+            # Rescale |v| so KE + qV stays constant (Farnell et al. 2003).
+            V_now = self.field.get_potential_at_batch(self.x_pos, self.y_pos)
+            ke_target = np.maximum(
+                self._E_total - self.generator.charge * V_now, 0.0
+            )
+            v_sq = self.x_vel**2 + self.y_vel**2
+            v_sq = np.where(v_sq > 0, v_sq, 1.0)
+            scale = np.sqrt(ke_target / (0.5 * self.generator.mass * v_sq))
+            self.x_vel *= scale
+            self.y_vel *= scale
+
         self.trajectories[:,0,step] = self.x_pos
         self.trajectories[:,1,step] = self.y_pos
 
@@ -268,7 +318,8 @@ class IonSimulation:
         generator: IonGenerator,
         n: int,
         steps: int = 20,
-        dt: float = 1e-6
+        dt: float = 1e-6,
+        conserve_energy: bool = False
     ) -> None:
         """
         Parameters
@@ -277,10 +328,14 @@ class IonSimulation:
             Number of steps to simulate.
         dt :
             Delta t in seconds.
+        conserve_energy :
+            If True, rescale the velocity vector at each step so that total
+            mechanical energy (KE + qV) is held constant (Farnell et al. 2003).
         """
         self.generator = generator
         self.n = n
         self.trajectories = np.zeros((self.n, 2, steps+1))
+        self._conserve_energy = conserve_energy
 
         self.x_pos, self.y_pos, self.x_vel, self.y_vel = \
             self.generator.generate_initial(self.n)
@@ -288,7 +343,14 @@ class IonSimulation:
         self.trajectories[:,0,0] = self.x_pos
         self.trajectories[:,1,0] = self.y_pos
 
-        for step in range(1,steps+1):
-            self.step(step,dt)
+        if conserve_energy:
+            V0 = self.field.get_potential_at_batch(self.x_pos, self.y_pos)
+            self._E_total = (
+                0.5 * generator.mass * (self.x_vel**2 + self.y_vel**2)
+                + generator.charge * V0
+            )
+
+        for step in range(1, steps+1):
+            self.step(step, dt)
 
         logger.info(f"Simulated {n} ions for {steps} steps")

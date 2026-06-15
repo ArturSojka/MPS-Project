@@ -1,0 +1,642 @@
+---
+title: "Simulation of the Electric Field Distribution in a Gridded Ion Thruster"
+author:
+  - name: Artur Sojka
+  - name: Michal Krzempek
+date: "2026-06-15"
+affiliation: >
+  AGH University of Krakow,
+  Faculty of Electrical Engineering, Automatics,
+  Computer Science and Biomedical Engineering
+bibliography: refs.bib
+format:
+  pdf:
+    documentclass: article
+    fontsize: 11pt
+    geometry: "margin=2.5cm"
+    include-in-header: preamble.tex
+    toc: false
+    number-sections: true
+jupyter: python3
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{python}
+#| label: setup
+#| output: false
+
+import sys, os
+
+# Quarto sets CWD to the .qmd directory; add project root so simulation/benchmark are importable.
+_root = os.path.abspath(os.path.join(os.getcwd(), '..'))
+if _root not in sys.path:
+    sys.path.insert(0, _root)
+
+import numpy as np
+import matplotlib.pyplot as plt
+import pint
+
+plt.rcParams.update({
+    "font.size": 12, "axes.titlesize": 13, "axes.labelsize": 12,
+    "xtick.labelsize": 11, "ytick.labelsize": 11, "legend.fontsize": 10,
+})
+
+from simulation import XENON_CHARGE, XENON_MASS
+from benchmark import (
+    NSTAR, SUNSTAR,
+    run_case_for_report,
+    make_overview_fig, make_potential_fig, make_divergence_fig,
+)
+from sensitivity import SWEEPS, run_sweep_for_report, make_sweep_fig
+
+nstar   = run_case_for_report(NSTAR)
+sunstar = run_case_for_report(SUNSTAR)
+
+sweep_data = {}
+for spec in SWEEPS:
+    sweep_data[spec['key']] = {'spec': spec, 'rows': run_sweep_for_report(spec)}
+
+ap = sweep_data['aperture']
+th = sweep_data['thickness']
+gp = sweep_data['gap']
+vt = sweep_data['voltage']
+
+ap_beam_lo  = int(ap['rows']['n_beam'][0])
+ap_beam_hi  = int(ap['rows']['n_beam'][-1])
+ap_accel_lo = int(ap['rows']['n_accel_hit'][-1])
+ap_accel_hi = int(ap['rows']['n_accel_hit'][0])
+gp_beam_lo  = int(gp['rows']['n_beam'][-1])
+gp_beam_hi  = int(gp['rows']['n_beam'][0])
+
+ureg = pint.UnitRegistry()
+Q_   = ureg.Quantity
+
+# theoretical exit speed from the full nominal voltage drop (no space-charge loss)
+v_theory_nstar = Q_(float(np.sqrt(2 * XENON_CHARGE * NSTAR.v_ref / XENON_MASS)), 'm/s').to('km/s')
+
+nstar_vmin     = Q_(nstar['v_min_axial'],       'V')
+nstar_eerr     = Q_(nstar['energy_error_pct'],  'percent')
+nstar_E_ratio  = Q_(nstar['E_ratio'],           '')   # '' = dimensionless in pint
+nstar_v_exit   = Q_(nstar['v_exit_mean'],       'm/s').to('km/s')
+nstar_dV       = Q_(nstar['delta_v_actual'],    'V')
+nstar_div_ang  = Q_(nstar['divergence_mean'],   'degree')
+
+sunstar_eerr    = Q_(sunstar['energy_error_pct'], 'percent')
+sunstar_E_ratio = Q_(sunstar['E_ratio'],          '')
+
+# rows['v_exit_kms'] is stored in km/s by compute_metrics
+gp_v_lo_qty = Q_(float(gp['rows']['v_exit_kms'][0]),  'km/s')
+gp_v_hi_qty = Q_(float(gp['rows']['v_exit_kms'][-1]), 'km/s')
+
+# voltage sweep: R=2 at index 0, R=18 at index -1
+vt_div_R2_qty  = Q_(float(vt['rows']['divergence'][0]),  'degree')
+vt_div_R18_qty = Q_(float(vt['rows']['divergence'][-1]), 'degree')
+
+nstar_length = Q_(NSTAR.l, 'm').to('mm')
+
+def _label_sweep_axes(fig):
+    """Relabel y-axes of a sweep figure with pint-derived unit strings."""
+    axes = fig.axes  # row-major: [top-left, top-right, bottom-left, bottom-right]
+    axes[0].set_ylabel(f"Mean exit speed ({nstar_v_exit.units:~C})")
+    axes[1].set_ylabel(f"Mean divergence half-angle ({nstar_div_ang.units:~C})")
+    axes[2].set_ylabel(f"Beam transparency ({nstar_eerr.units:~C})")
+    axes[3].set_ylabel(f"Accel-grid impingement (/{NSTAR.n_ions})")
+```
+
+## Introduction {#sec-intro}
+
+This project builds a two-dimensional electrostatic simulation of the ion-optics
+region of a gridded ion thruster, with the goal of answering the central question:
+
+> *How does the configuration of the grid aperture in an ion thruster influence
+> the acceleration, trajectory and efficiency of the beam?*
+
+The electric potential is obtained by solving Laplace's equation on a
+finite-difference grid with Jacobi relaxation; the electric field follows from
+its gradient, and singly charged xenon ions are integrated through the field with
+an energy-conserving Euler-Cromer scheme. A Manim-based visualization layer
+renders the potential map, field vectors, streamlines, and ion trajectories as
+animated video.
+
+Gridded ion thrusters produce thrust by electrostatically accelerating ions
+extracted from a discharge plasma. The upstream *screen grid* is held near the
+plasma potential while the downstream *accel grid* is held strongly negative,
+accelerating xenon ions to tens of kilometres per second. NASA's Deep Space 1
+(1998) and Dawn (2007) missions both used thrusters of this kind. Performance is
+governed largely by grid geometry - aperture diameters, grid thicknesses, the
+inter-grid gap, and the applied voltages - which motivates the sensitivity study
+in @sec-sensitivity.
+
+The model is validated against two published reference geometries (NSTAR and
+SUNSTAR) in @sec-validation and then used for a one-parameter-at-a-time sweep
+of four design variables in @sec-sensitivity. The physical model is described
+in @sec-model, numerical methods in @sec-methods, the visualization layer in
+@sec-viz, and limitations in @sec-limits.
+
+## Physical model {#sec-model}
+
+### Domain and geometry
+
+We model a single aperture of the grid array in a two-dimensional Cartesian
+plane $(x,y)$, where $x$ is the beam (axial) direction and $y$ is the radial
+direction across the aperture. By symmetry the array is periodic in $y$, so the
+computational domain spans exactly one centre-to-centre hole spacing $\ell$ in
+the radial direction and the full ion-optics length in the axial direction. The
+domain is discretised into a uniform grid of square cells of side $\Delta x$;
+all results below use an $80\times45$ grid (a 16:9 aspect ratio), giving a cell
+size of about \SI{49}{\micro\meter} for the NSTAR geometry.
+
+Each grid electrode is represented as two solid rectangular conductors (the
+material on either side of the aperture), held at a fixed potential. The screen
+grid sits at the upstream end at the screen voltage $V_\mathrm{s}$, the accel
+grid a gap $g$ further downstream at the accel voltage $V_\mathrm{a}$. The
+upstream boundary of the domain is held at $V_\mathrm{s}$ to represent the
+discharge-chamber plasma, and the remaining outer boundaries act as fixed
+(Dirichlet) walls.
+
+### Electrostatics: Laplace's equation
+
+In a region free of space charge the electric potential $V$ obeys Laplace's
+equation,
+
+$$
+\nabla^2 V = \frac{\partial^2 V}{\partial x^2}
+           + \frac{\partial^2 V}{\partial y^2} = 0,
+$$ {#eq-laplace}
+
+with the conductor surfaces and domain boundaries acting as Dirichlet boundary
+conditions of fixed potential. The deliberate modelling assumption embedded in
+@eq-laplace - that the region is charge-free - is discussed at length in
+@sec-limits; it is the single most important simplification in the model.
+
+Once the potential is known, the electric field is its negative gradient,
+
+$$
+\vec{E} = -\nabla V, \qquad
+E_x = -\frac{\partial V}{\partial x}, \quad
+E_y = -\frac{\partial V}{\partial y}.
+$$ {#eq-efield}
+
+### Ion dynamics
+
+Each ion is a point particle of mass $m$ and charge $q$ moving under the
+electrostatic (Coulomb) force only,
+
+$$
+\vec{F} = q\vec{E}, \qquad \vec{a} = \frac{\vec{F}}{m}
+        = \frac{q}{m}\,\vec{E}\bigl(x,y\bigr).
+$$ {#eq-newton}
+
+Magnetic forces, inter-ion forces and collisions are neglected; the ions are
+test particles that feel the field but, consistent with @eq-laplace, do not
+contribute to it. The species is singly charged xenon, $\mathrm{Xe}^{+}$, with
+$m = \SI{2.18e-25}{\kilogram}$ and $q = +\SI{1.602e-19}{\coulomb}$.
+
+Ions enter at the screen aperture with the Bohm velocity, the speed at which
+ions leave a quasi-neutral plasma through a sheath,
+
+$$
+v_B = \sqrt{\frac{k T_e}{m}} \approx \SI{1917}{\meter\per\second}
+\quad (k T_e = \SI{5}{\electronvolt}),
+$$ {#eq-bohm}
+
+which is the physically appropriate injection condition used by the reference
+simulations.
+
+## Numerical methods {#sec-methods}
+
+### Finite-difference Jacobi relaxation
+
+Laplace's equation (@eq-laplace) is discretised with the standard second-order
+central difference for the Laplacian on a square grid. Setting the discrete
+Laplacian to zero gives the five-point stencil in which each free cell equals
+the average of its four neighbours:
+
+$$
+V_{i,j} = \frac{V_{i+1,j} + V_{i-1,j} + V_{i,j+1} + V_{i,j-1}}{4}.
+$$ {#eq-stencil}
+
+Jacobi relaxation applies @eq-stencil simultaneously to every free cell --
+conductor cells hold their fixed potential throughout - and repeats until the
+largest change between successive sweeps falls below $\varepsilon = 10^{-6}$.
+A one-cell ghost-padding stores the Dirichlet boundary values so no edge
+special-casing is needed. After convergence the field components (@eq-efield)
+are computed with central differences, and bilinear interpolation samples $V$
+and $\vec{E}$ at arbitrary ion positions.
+
+### Particle integration: the Euler-Cromer scheme
+
+The equations of motion (@eq-newton) are integrated with the Euler-Cromer
+(semi-implicit Euler) method. The distinction from plain forward Euler is small
+in code but important in behaviour: the velocity is advanced first, and the
+*updated* velocity is then used to advance the position,
+
+$$
+\begin{aligned}
+\vec{v}_{n+1} &= \vec{v}_n + \vec{a}_n\,\Delta t, \\
+\vec{x}_{n+1} &= \vec{x}_n + \vec{v}_{n+1}\,\Delta t.
+\end{aligned}
+$$ {#eq-ec}
+
+This ordering makes the scheme symplectic, so it does not exhibit the systematic
+energy growth of forward Euler; it remains, however, only first order accurate
+in the time step $\Delta t$. All runs use $\Delta t = \SI{1e-10}{\second}$ over
+$3000$ steps.
+
+### Energy-conserving correction
+
+Even a symplectic first-order scheme leaves a residual energy error that, over
+the strong potential drop of the ion optics, is not negligible; left uncorrected
+the exit-speed error in our tests reached about \SI{76}{\percent}. We therefore
+apply the velocity-rescaling correction of Farnell et al.: at each step, after
+the position update, the magnitude of the velocity is rescaled so that the total
+mechanical energy $E = \tfrac12 m |\vec v|^2 + qV$ equals its value at
+injection, while the direction of $\vec v$ is left unchanged,
+
+$$
+|\vec{v}_\mathrm{corr}| =
+\sqrt{\frac{2\,\bigl(E_\mathrm{tot} - qV(x,y)\bigr)}{m}}.
+$$ {#eq-energy}
+
+The correction reduces the energy error to about \SI{0.6}{\percent}
+(@sec-validation).
+
+## Visualization architecture {#sec-viz}
+
+A thin object-oriented layer built on the Manim animation library turns the
+simulation output - potential and field arrays plus a
+$(\text{ions}\times2\times\text{steps})$ trajectory array - into animated video.
+The `simulation` package handles only physics and never imports Manim; the
+`visualization` package handles only rendering and is strictly decoupled from the numerical solver. A
+single `CoordsConverter` class bridges the three coordinate systems in play:
+array indices, physical metres, and Manim screen units.
+
+The `MElectricField` class renders the potential as a coloured background image
+and the field direction as either a scaled quiver of arrows or flowing
+streamlines. The `MIonSimulation` class maps each stored trajectory through the
+converter to produce a smooth on-screen path; in the full animation mode, a dot
+tracks each ion's true position with a short dissipating trace. Scenes are
+assembled by layering these views in drawing order, sharing one converter, so all
+elements register correctly on screen.
+
+## Validation against published thrusters {#sec-validation}
+
+Before studying parameter effects we checked that the model reproduces the known
+behaviour of real grid sets. Two reference geometries were used: the NSTAR
+flight thruster [@wang2001] and the scaled-up SUNSTAR design [@farnell2003],
+which is a uniform $1.63\times$ linear enlargement of NSTAR run at a $2.7\times$
+higher voltage. The principal NSTAR parameters are listed in @tbl-geom; the
+SUNSTAR case shares the metric code and differs only in its dimensions and
+voltages.
+
+| Quantity | Symbol | Value |
+|:---|:---|:---|
+| Screen aperture diameter | $d_\mathrm{s}$ | \SI{1.91}{\milli\meter} |
+| Accel aperture diameter  | $d_\mathrm{a}$ | \SI{1.14}{\milli\meter} |
+| Accel grid thickness     | $t_\mathrm{a}$ | \SI{0.51}{\milli\meter} |
+| Screen-to-accel gap      | $g$            | \SI{0.58}{\milli\meter} |
+| Centre-to-centre spacing | $\ell$         | \SI{2.21}{\milli\meter} |
+| Screen voltage           | $V_\mathrm{s}$ | \SI{+1074}{\volt} |
+| Accel voltage            | $V_\mathrm{a}$ | \SI{-180}{\volt} |
+
+: NSTAR ion-optics parameters [@wang2001, Table 1]. {#tbl-geom}
+
+### Potential and ion trajectories
+
+@fig-overview shows the converged potential map for the NSTAR geometry together
+with the integrated $\mathrm{Xe}^{+}$ trajectories. The potential falls smoothly
+from the screen value on the left to near zero on the right, with the negative
+accel grid carving a local well. Ions launched across the screen aperture are
+accelerated through the gap and focused towards the axis; those launched near
+the aperture edge feel the strongest radial fringe field and a fraction of them
+are steered into the accel-grid walls rather than passing through. The positive
+screen grid repels most of the positive ions, so only
+`{python} len(nstar['hits_screen'])` of the `{python} NSTAR.n_ions` ions strike
+it - the few launched right at the aperture rim, where the radial fringe field is
+strong enough to overcome the repulsion - against
+`{python} len(nstar['hits_accel'])` lost to the accel grid.
+
+```{python}
+#| label: fig-overview
+#| fig-cap: "Converged electric potential (colour) and $\\mathrm{Xe}^{+}$ ion trajectories for the NSTAR geometry. Green paths reach the exit plane; red paths are lost to the accel grid; magenta paths strike the positive screen grid, which repels almost all of the ions so that only a few rim ions reach it."
+#| out-width: "100%"
+
+fig = make_overview_fig(NSTAR, nstar)
+ax = fig.axes[0]
+ax.set_xlabel(f"x ({nstar_length.units:~C})")
+ax.set_ylabel(f"y ({nstar_length.units:~C})")
+plt.show()
+plt.close(fig)
+```
+
+The on-axis potential profile, @fig-potential, makes the accelerating structure
+explicit. The potential starts near the screen voltage at the left boundary and falls
+continuously through the screen aperture and inter-grid gap, reaching a minimum
+near the accel grid before recovering toward zero downstream. The simulated on-axis minimum is
+`{python} f"{nstar_vmin.magnitude:.1f} {nstar_vmin.units:~C}"`, which, correctly,
+stays well above the \SI{-180}{\volt} accel-grid voltage itself, because the field
+spreads laterally through the aperture rather than reaching the full electrode
+potential on the axis. The same shallow on-axis dip, sitting above the accel
+potential, is visible in the potential contours of Wang et al.
+(@fig-wang-potential).
+
+```{python}
+#| label: fig-potential
+#| fig-cap: "On-axis electric potential for the NSTAR geometry. The potential falls from near the screen voltage at the left boundary, reaches a minimum near the accel grid, then recovers downstream."
+#| out-width: "100%"
+
+fig = make_potential_fig(NSTAR, nstar)
+ax = fig.axes[0]
+ax.set_xlabel(f"x position ({nstar_length.units:~C})")
+ax.set_ylabel(f"Electric potential ({nstar_vmin.units:~C})")
+plt.show()
+plt.close(fig)
+```
+
+The same structure is visible in the three-dimensional reference simulation. The
+longitudinal potential contours of Wang et al. (@fig-wang-potential) show the
+identical pattern - a high, flat potential in the upstream discharge region that
+collapses across the grids and dips to a shallow on-axis minimum near the accel
+grid - which our two-dimensional solver (@fig-overview, @fig-potential)
+reproduces.
+
+![Longitudinal potential contours for the NSTAR ion optics from the
+three-dimensional simulation of Wang et al. [-@wang2001], shown for
+comparison with @fig-overview and @fig-potential. Contour values are normalised
+by \SI{5}{\volt}.](figures/wang_1.png){#fig-wang-potential width=80%}
+
+### Quantitative metrics
+
+Three further metrics confirm the solver behaves correctly. The peak on-axis
+field in the gap is only `{python} f"{nstar_E_ratio.magnitude:.2f}"` times the naive
+one-dimensional estimate $\Delta V / g$, the expected sub-unity ratio for a
+perforated electrode in which the field spreads through the holes rather than
+dropping fully across a solid gap. The energy-conservation error after the
+correction of @eq-energy is
+`{python} f"{nstar_eerr.magnitude:.2f} {nstar_eerr.units:~C}"`, confirming the
+integrator is internally consistent. Re-running the identical metric code on the
+SUNSTAR geometry gives a field ratio of
+`{python} f"{sunstar_E_ratio.magnitude:.2f}"` and an energy error of
+`{python} f"{sunstar_eerr.magnitude:.2f} {sunstar_eerr.units:~C}"` despite the
+$2.7\times$ voltage and $1.63\times$ size change; that these two purely
+geometric/numerical quantities are essentially unchanged across so large a span
+is strong evidence that the solver is correct rather than tuned to a single case.
+
+The one quantity the model under-predicts is the absolute exit speed:
+`{python} f"{nstar_v_exit.magnitude:.1f} {nstar_v_exit.units:~C}"`
+against the
+`{python} f"{v_theory_nstar.magnitude:.1f} {v_theory_nstar.units:~C}"` expected
+from the full \SI{1074}{\volt} drop. The ions experience an effective potential
+drop of only about
+`{python} f"{nstar_dV.magnitude:.0f} {nstar_dV.units:~C}"` because, with no space
+charge, the bare accel grid depresses the potential inside the screen aperture;
+the same deficit, as a near-constant fraction ($54$-\SI{58}{\percent}) of the
+nominal voltage, recurs for SUNSTAR. This is the expected consequence of solving
+Laplace rather than Poisson and is examined in @sec-limits. The beam divergence,
+@fig-divergence, rises monotonically from near zero on the axis to roughly
+$30^{\circ}$ at the aperture edge, in qualitative agreement with the reference
+velocity-vector plots of Wang et al. (@fig-wang-beam), which likewise show the
+beam fanning outward toward the aperture edge. The quantitative comparison is
+favourable. The simulated mean half-angle of
+`{python} f"{nstar_div_ang.magnitude:.1f}"`$^{\circ}$ corresponds to a divergence
+thrust-correction factor $\cos\theta =$
+`{python} f"{np.cos(np.radians(nstar['divergence_mean'])):.2f}"`, matching the
+$0.97$-$0.98$ that Soulas measured for the NSTAR optics across its throttling
+range [@soulas2001]. The same value sits comfortably inside the $\sim\!15^{\circ}$
+divergence half-angle quoted for NSTAR by Bombardelli and Pelaez [@bombardelli2011]
+and used ($0.26$ rad) in the NSTAR plume model of Davis et al. [@davis1997].
+Further out, the simulated $95\%$-enclosure half-angle of
+`{python} f"{nstar['divergence_p95']:.1f}"`$^{\circ}$ is likewise close to the
+$26$-$29^{\circ}$ that Soulas reports for the $95\%$-current envelope. The roughly
+parabolic, rather than linear, rise of the curve
+about the centreline is itself physical: it is the spherical aberration of the
+electrostatic aperture lens. Paraxial ions near the axis see a nearly linear
+radial restoring field and stay well collimated, whereas ions near the aperture
+edge enter the strongly nonlinear fringe field and are deflected
+disproportionately, so the divergence grows faster than linearly with radius.
+
+```{python}
+#| label: fig-divergence
+#| fig-cap: "Exit divergence half-angle versus the ion's radial starting position for the NSTAR geometry. Divergence grows with distance from the centreline, as edge ions feel the strongest radial fringe field."
+#| out-width: "92%"
+
+fig = make_divergence_fig(NSTAR, nstar)
+ax = fig.axes[0]
+ax.set_xlabel(f"Starting position relative to centreline ({nstar_length.units:~C})")
+ax.set_ylabel(f"Exit divergence angle ({nstar_div_ang.units:~C})")
+plt.show()
+plt.close(fig)
+```
+
+This outward-fanning, rising-with-radius behaviour is exactly what the
+beam-ion velocity-direction field of Wang et al. (@fig-wang-beam) displays: the
+velocity vectors point downstream on the axis and tilt progressively outward
+toward the aperture edge. Our trajectories (@fig-overview) and divergence curve
+(@fig-divergence) capture the same trend, albeit at the smaller absolute angle
+discussed above.
+
+![Beam-ion velocity directions for the NSTAR ion optics from the
+three-dimensional simulation of Wang et al. [-@wang2001]. The vectors fan
+outward from the axis toward the aperture edge, the same divergence trend
+captured by @fig-overview and @fig-divergence.](figures/wang_2.png){#fig-wang-beam width=80%}
+
+## Parameter sensitivity study {#sec-sensitivity}
+
+With the model validated we turn to the central question and vary, one at a
+time, the four design parameters named on the project poster: the aperture
+diameter ratio $d_\mathrm{a}/d_\mathrm{s}$, the accel grid thickness
+$t_\mathrm{a}$, the inter-grid gap $g$, and the voltage ratio
+$R = V_\mathrm{s}/|V_\mathrm{a}|$. Each sweep starts from the validated NSTAR
+baseline and changes a single parameter, holding the rest fixed and using the
+same fixed random seed for the ion start positions, so that every curve isolates
+one variable. For each value we record the mean exit speed (the
+*acceleration*), the mean divergence half-angle (the *trajectory*), and the beam
+transparency and accel-grid impingement count (the *efficiency*).
+
+It must be stressed that every trend reported below is obtained within an
+*idealized scenario*: the space-charge-free Laplace model of @sec-model, with no
+ion-beam space charge, no upstream plasma sheath, no electron backstreaming and
+no electrical breakdown. The sweeps therefore reveal the *direction* in which
+each parameter pushes the beam - which way the exit speed, divergence and
+impingement move, and their relative strengths - but they do not predict the
+true optimum of a real grid set. Several of the "improvements" seen here (a wider
+accel aperture, a larger gap, a more negative accel grid) are precisely the
+changes that the omitted physics would penalise, so the conclusions should be
+read as qualitative mechanisms rather than design prescriptions. The specific
+bounds the model cannot see are noted with each parameter and collected in
+@sec-limits.
+
+### Aperture diameter ratio
+
+Widening the accel aperture relative to the screen aperture
+(@fig-sweep-aperture) improves almost every metric within the model: the exit
+speed rises modestly, the beam transparency climbs from `{python} ap_beam_lo` to
+`{python} ap_beam_hi` of `{python} NSTAR.n_ions` ions, and the accel-grid impingement falls sharply
+from `{python} ap_accel_hi` to just `{python} ap_accel_lo`, because the larger
+hole gives edge ions room to pass instead of striking the grid. The divergence
+rises slightly, as the larger hole focuses the beam less tightly. Taken alone
+this would argue for as large an accel aperture as possible - a conclusion the
+model cannot temper because it does not represent electron backstreaming, the
+space-charge effect that in reality forbids a large accel hole (@sec-limits).
+This is why the real NSTAR ratio sits near $0.6$ rather than at the upper end of
+the sweep.
+
+```{python}
+#| label: fig-sweep-aperture
+#| fig-cap: "Effect of the accel/screen aperture ratio $d_\\mathrm{a}/d_\\mathrm{s}$ on the four output metrics. The dashed line marks the NSTAR baseline."
+#| out-width: "100%"
+
+fig = make_sweep_fig(ap['spec'], ap['rows'])
+_label_sweep_axes(fig)
+plt.show()
+plt.close(fig)
+```
+
+### Accel grid thickness
+
+Grid thickness, @fig-sweep-thickness, has the weakest influence on exit speed:
+it stays flat to within about one percent (with a shallow minimum near mid-range)
+across a fourfold change in $t_\mathrm{a}$. The most striking optical effect is
+on divergence: a thicker grid acts as a longer collimating channel, and the mean
+half-angle falls from about $12.1^{\circ}$ to $9.7^{\circ}$ across the sweep.
+On efficiency, a thicker grid presents more wall area, so impingement rises and
+transparency falls. Thickness thus governs beam collimation and grid lifetime more
+than acceleration, consistent with the use of thick-accel-grid optics to extend
+grid life against erosion [@soulas2001].
+
+```{python}
+#| label: fig-sweep-thickness
+#| fig-cap: "Effect of the accel grid thickness $t_\\mathrm{a}$. Acceleration is essentially unaffected; accel-grid impingement rises substantially across the sweep while transparency falls, confirming that thickness is primarily an efficiency and lifetime parameter."
+#| out-width: "100%"
+
+fig = make_sweep_fig(th['spec'], th['rows'])
+_label_sweep_axes(fig)
+plt.show()
+plt.close(fig)
+```
+
+### Inter-grid gap
+
+The gap, @fig-sweep-gap, produces the clearest trade-off in the whole study.
+Increasing it raises the exit speed appreciably - from
+`{python} f"{gp_v_lo_qty.magnitude:.1f} {gp_v_lo_qty.units:~C}"` to
+`{python} f"{gp_v_hi_qty.magnitude:.1f} {gp_v_hi_qty.units:~C}"` - because a more
+distant accel grid depresses the screen-aperture potential less, so ions start
+from a higher potential and gain more energy. At the same time the efficiency
+degrades markedly: transparency falls from `{python} gp_beam_hi` to
+`{python} gp_beam_lo` of `{python} NSTAR.n_ions` ions and impingement rises by roughly 45%.
+Divergence is non-monotonic: it rises from $10.3^{\circ}$ at the smallest gap
+to a peak of $11.3^{\circ}$ near the baseline, then falls back to $10.5^{\circ}$
+at the largest gap. At small gaps the accel grid's strong field penetrates deeply
+into the screen aperture but ions traverse the fringe region quickly; near the
+baseline the drift is long enough for edge ions to accumulate significant lateral
+velocity; at large gaps the distant accel grid barely reaches the screen aperture,
+the fringe field there weakens, and the higher ion exit speed reduces the lateral
+deflection ratio, so divergence decreases again. The gap thus trades acceleration against beam capture, and the
+baseline value sits in the practical compromise region. The apparent message that
+an ever-larger gap buys ever-more ion energy is, however, an artefact of the
+idealized model: in a real thruster a small gap is bounded from below by
+electrical breakdown (which the model does not include), while a large gap, in
+addition to the transparency loss seen here, is penalised by the very
+space-charge and perveance limits the Laplace model omits. The result should
+therefore be read as "a larger gap raises the per-ion energy in the
+space-charge-free limit," not as a recommendation to enlarge the gap without
+bound.
+
+```{python}
+#| label: fig-sweep-gap
+#| fig-cap: "Effect of the screen-to-accel gap. A larger gap buys ion energy at a direct cost in transparency and grid impingement."
+#| out-width: "100%"
+
+fig = make_sweep_fig(gp['spec'], gp['rows'])
+_label_sweep_axes(fig)
+plt.show()
+plt.close(fig)
+```
+
+### Voltage ratio
+
+Varying the voltage ratio $R = V_\mathrm{s}/|V_\mathrm{a}|$ with the screen
+voltage fixed, @fig-sweep-voltage, mainly affects focusing. A more negative
+accel grid (small $R$, a deeper well) pulls harder on the off-axis ions and
+widens the beam, raising the mean divergence from about
+`{python} f"{vt_div_R18_qty.magnitude:.1f}"`$^{\circ}$ at $R=18$ to
+`{python} f"{vt_div_R2_qty.magnitude:.1f}"`$^{\circ}$ at $R=2$; the effect on exit
+speed is mild, because the net accelerating voltage is set chiefly by the screen
+voltage. Both efficiency metrics decrease as $R$ increases, but for different
+reasons. Accel-grid impingement falls because a less negative accel grid produces
+a weaker radial fringe field, deflecting fewer edge ions into the accel walls.
+Beam transparency also falls slightly, but this is partly a simulation artefact:
+with a weaker accel field, ions are accelerated more slowly and a growing number
+fail to reach any boundary within the fixed 3000-step simulation window; a
+diagnostic sweep confirms that these "lost" ions rise from 8 at $R=2$ to 37 at
+$R=18$, accounting for most of the apparent transparency loss. As with the
+aperture ratio, the model sees only the focusing trend and not the lower bound on
+$|V_\mathrm{a}|$ imposed by electron backstreaming, which is the dominant reason
+a negative accel grid exists at all.
+
+```{python}
+#| label: fig-sweep-voltage
+#| fig-cap: "Effect of the voltage ratio $R = V_\\mathrm{s}/|V_\\mathrm{a}|$. The ratio mainly sets the beam divergence; the on-axis exit speed is only weakly affected."
+#| out-width: "100%"
+
+fig = make_sweep_fig(vt['spec'], vt['rows'])
+_label_sweep_axes(fig)
+plt.show()
+plt.close(fig)
+```
+
+## Limitations and future work {#sec-limits}
+
+The dominant limitation is that the model solves Laplace's equation rather than
+Poisson's equation ($\nabla^2 V = -\rho/\varepsilon_0$), neglecting space
+charge. Two effects are lost: the positive ion beam would lift the in-gap
+potential towards the screen value, and the upstream plasma sheath would hold the
+screen aperture near plasma potential. Without either, the simulated ions
+experience only about half the nominal voltage drop, explaining the under-predicted
+exit speed. The same omission prevents the sensitivity study from capturing
+electron backstreaming (the real upper bound on aperture ratio) and electrical
+breakdown (the lower bound on gap).
+
+Secondary simplifications include the two-dimensional geometry (circular
+apertures become slots), a first-order Euler-Cromer integrator (energy drift is
+corrected but trajectory direction still accumulates $O(\Delta t)$ error per
+step), and fixed-potential top/bottom boundaries in place of the more accurate
+periodic Neumann condition. The primary extension would be a self-consistent
+Poisson solver; beyond that, a higher-order integrator and an axisymmetric or
+three-dimensional geometry would allow direct quantitative comparison with
+published thruster data.
+
+## Conclusion
+
+We have built and validated a two-dimensional electrostatic model of a gridded
+ion thruster's ion optics, combining a Jacobi-relaxation Laplace solver with an
+energy-conserving Euler-Cromer particle integrator and a dedicated Manim
+visualization layer that renders the field and the ion beam as animation. The
+model reproduces the correct saddle-shaped on-axis potential, the sub-unity
+field-spreading ratio in the gap and the qualitative beam-focusing behaviour of
+two independent published geometries, with the two purely geometric metrics
+nearly identical across a $2.7\times$ voltage and $1.63\times$ size change.
+Using it to answer the project's central question, we found that the inter-grid
+gap is the dominant acceleration-versus-efficiency trade-off, the aperture ratio
+is the strongest efficiency lever, grid thickness serves primarily as a parameter governing grid lifetime,
+and the voltage ratio mainly governs beam divergence. These findings describe
+the *direction and relative strength* of each effect within an idealized,
+space-charge-free scenario; they identify the governing mechanisms but, lacking
+the beam space charge, plasma sheath, electron backstreaming and breakdown
+limits of a real device, they are not by themselves optimal design rules.
+Residual disagreements with published data are consistent with the model's
+deliberate simplification of solving Laplace's rather than Poisson's equation.
+It is also worth noting that the energy-conserving correction to the
+Euler-Cromer scheme rescales the ion speed at each step to eliminate energy
+drift, but leaves the trajectory direction uncorrected; the directional error
+accumulates as $O(\Delta t)$ per step and is the remaining source of trajectory
+inaccuracy once the energy error is removed.
+
+## References {.unnumbered}
+
+::: {#refs}
+:::
