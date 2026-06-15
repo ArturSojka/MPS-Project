@@ -3,7 +3,7 @@ title: "Simulation of the Electric Field Distribution in a Gridded Ion Thruster"
 author:
   - name: Artur Sojka
   - name: Michal Krzempek
-date: "2026"
+date: "2026-06-15"
 affiliation: >
   AGH University of Krakow,
   Faculty of Electrical Engineering, Automatics,
@@ -270,7 +270,7 @@ A thin object-oriented layer built on the Manim animation library turns the
 simulation output - potential and field arrays plus a
 $(\text{ions}\times2\times\text{steps})$ trajectory array - into animated video.
 The `simulation` package handles only physics and never imports Manim; the
-`visualization` package handles only rendering and never touches the solver. A
+`visualization` package handles only rendering and is strictly decoupled from the numerical solver. A
 single `CoordsConverter` class bridges the three coordinate systems in play:
 array indices, physical metres, and Manim screen units.
 
@@ -572,7 +572,7 @@ a weaker radial fringe field, deflecting fewer edge ions into the accel walls.
 Beam transparency also falls slightly, but this is partly a simulation artefact:
 with a weaker accel field, ions are accelerated more slowly and a growing number
 fail to reach any boundary within the fixed 3000-step simulation window; a
-diagnostic sweep confirms that these ``lost'' ions rise from 8 at $R=2$ to 37 at
+diagnostic sweep confirms that these "lost" ions rise from 8 at $R=2$ to 37 at
 $R=18$, accounting for most of the apparent transparency loss. As with the
 aperture ratio, the model sees only the focusing trend and not the lower bound on
 $|V_\mathrm{a}|$ imposed by electron backstreaming, which is the dominant reason
@@ -622,7 +622,7 @@ two independent published geometries, with the two purely geometric metrics
 nearly identical across a $2.7\times$ voltage and $1.63\times$ size change.
 Using it to answer the project's central question, we found that the inter-grid
 gap is the dominant acceleration-versus-efficiency trade-off, the aperture ratio
-is the strongest efficiency lever, grid thickness is essentially a lifetime knob,
+is the strongest efficiency lever, grid thickness serves primarily as a parameter governing grid lifetime,
 and the voltage ratio mainly governs beam divergence. These findings describe
 the *direction and relative strength* of each effect within an idealized,
 space-charge-free scenario; they identify the governing mechanisms but, lacking
