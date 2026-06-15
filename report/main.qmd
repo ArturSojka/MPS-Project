@@ -527,9 +527,15 @@ Increasing it raises the exit speed appreciably - from
 distant accel grid depresses the screen-aperture potential less, so ions start
 from a higher potential and gain more energy. At the same time the efficiency
 degrades markedly: transparency falls from `{python} gp_beam_hi` to
-`{python} gp_beam_lo` of `{python} NSTAR.n_ions` ions and impingement rises by roughly 45%, as the longer
-drift through the fringe field defocuses the beam and drives more edge ions into
-the accel grid. The gap thus trades acceleration against beam capture, and the
+`{python} gp_beam_lo` of `{python} NSTAR.n_ions` ions and impingement rises by roughly 45%.
+Divergence is non-monotonic: it rises from $10.3^{\circ}$ at the smallest gap
+to a peak of $11.3^{\circ}$ near the baseline, then falls back to $10.5^{\circ}$
+at the largest gap. At small gaps the accel grid's strong field penetrates deeply
+into the screen aperture but ions traverse the fringe region quickly; near the
+baseline the drift is long enough for edge ions to accumulate significant lateral
+velocity; at large gaps the distant accel grid barely reaches the screen aperture,
+the fringe field there weakens, and the higher ion exit speed reduces the lateral
+deflection ratio, so divergence decreases again. The gap thus trades acceleration against beam capture, and the
 baseline value sits in the practical compromise region. The apparent message that
 an ever-larger gap buys ever-more ion energy is, however, an artefact of the
 idealized model: in a real thruster a small gap is bounded from below by
@@ -558,12 +564,19 @@ voltage fixed, @fig-sweep-voltage, mainly affects focusing. A more negative
 accel grid (small $R$, a deeper well) pulls harder on the off-axis ions and
 widens the beam, raising the mean divergence from about
 `{python} f"{vt_div_R18_qty.magnitude:.1f}"`$^{\circ}$ at $R=18$ to
-`{python} f"{vt_div_R2_qty.magnitude:.1f}"`$^{\circ}$ at $R=2$; the effect on the on-axis
-exit speed is mild, because the *net* accelerating voltage is set chiefly by the
-screen voltage, not the accel voltage. As with the aperture ratio, the model
-sees only the focusing trend and not the lower bound on $|V_\mathrm{a}|$ imposed
-by electron backstreaming, which is the dominant reason a negative accel grid
-exists at all.
+`{python} f"{vt_div_R2_qty.magnitude:.1f}"`$^{\circ}$ at $R=2$; the effect on exit
+speed is mild, because the net accelerating voltage is set chiefly by the screen
+voltage. Both efficiency metrics decrease as $R$ increases, but for different
+reasons. Accel-grid impingement falls because a less negative accel grid produces
+a weaker radial fringe field, deflecting fewer edge ions into the accel walls.
+Beam transparency also falls slightly, but this is partly a simulation artefact:
+with a weaker accel field, ions are accelerated more slowly and a growing number
+fail to reach any boundary within the fixed 3000-step simulation window; a
+diagnostic sweep confirms that these ``lost'' ions rise from 8 at $R=2$ to 37 at
+$R=18$, accounting for most of the apparent transparency loss. As with the
+aperture ratio, the model sees only the focusing trend and not the lower bound on
+$|V_\mathrm{a}|$ imposed by electron backstreaming, which is the dominant reason
+a negative accel grid exists at all.
 
 ```{python}
 #| label: fig-sweep-voltage
@@ -617,6 +630,11 @@ the beam space charge, plasma sheath, electron backstreaming and breakdown
 limits of a real device, they are not by themselves optimal design rules.
 Residual disagreements with published data are consistent with the model's
 deliberate simplification of solving Laplace's rather than Poisson's equation.
+It is also worth noting that the energy-conserving correction to the
+Euler-Cromer scheme rescales the ion speed at each step to eliminate energy
+drift, but leaves the trajectory direction uncorrected; the directional error
+accumulates as $O(\Delta t)$ per step and is the remaining source of trajectory
+inaccuracy once the energy error is removed.
 
 ## References {.unnumbered}
 
